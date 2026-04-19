@@ -1,0 +1,14 @@
+<ivy-module version="2.0">
+  <info organisation="bundledPlugin" module="com.intellij.platform.images" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="platform-images" ext="jar" conf="default" url="plugins/platform-images/lib"/>
+    <artifact name="intellij.platform.images.xdebugger" ext="jar" conf="default" url="plugins/platform-images/lib/modules"/>
+    <artifact name="intellij.platform.images.copyright" ext="jar" conf="default" url="plugins/platform-images/lib/modules"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.xml.psi.impl" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

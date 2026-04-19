@@ -1,0 +1,192 @@
+<ivy-module version="2.0">
+  <info organisation="bundledPlugin" module="com.intellij.java" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="jps-javac-extension" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="jps-launcher" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="java-impl" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="netty-codec-protobuf" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="debugger-memory-agent" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="kotlin-metadata" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="sa-jdwp" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="jb-jdi" ext="jar" conf="default" url="plugins/java/lib"/>
+    <artifact name="intellij.platform.jps.build.dependencyGraph" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.terminal" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.uiDesigner" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.unscramble" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.ui" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.uast" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.debugger.memory.agent" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.jvm.analysis.refactoring" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.jvm.analysis" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.frontend.split" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.resources.en" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.debugger" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.manifest" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.impl.refactorings" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.profiler.ultimate" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.execution" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.execution.impl.backend" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.impl.inspections" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.backend.split" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.execution.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.featuresTrainer" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.debugger.impl.backend" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.duplicatesDetection" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.promo" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.uast.ide" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.copyright" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.debugger.impl.frontend" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.jvm.analysis.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.jvm.dfa.analysis.ui" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.performancePlugin" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.analysis" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.backend" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.debugger.jvm.advanced.java" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.remoteServers.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.langInjection.jps" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.structureView" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.codeserver.core" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.langInjection" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.resources" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.jvm.analysis.quickFix" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.jsp.spi" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.compiler" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.typeMigration" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.vcs" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.ultimate.icons" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.jsp" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.platform.uast.ide" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.debugger.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.jam" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.codeserver.highlighting" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.structuralSearch" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.compiler.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.duplicates.analysis" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.indexing" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.duplicates" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.remoteServers" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.execution.impl.frontend" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.indexing.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.jam.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.platform.jps.build" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.platform.uast" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+    <artifact name="intellij.java.analysis.impl" ext="jar" conf="default" url="plugins/java/lib/modules"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.platform.kernel.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.stream" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.core" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.core.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.lang" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.ide.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.projectModel" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.uast" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.uast.ide" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.externalSystem" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.analysis" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.lang.core" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.ide" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.xml.dom" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.indexing" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.analysis" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.util.ui" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.core.ui" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.xml.psi" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.regexp" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.resources" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.execution" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.compiler" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.jsp" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.resources.en" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.projectModel.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.codeserver.core" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.codeserver.highlighting" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.indexing.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.analysis.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.xml.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.xml.dom.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.builtInServer.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.externalSystem.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.bookmarks.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.todo.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.structureView" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.jsp.spi" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.spellchecker" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.diff" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.lang.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.jps.build" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.structuralSearch" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.impl.refactorings" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.jvm.analysis" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.jvm.analysis.refactoring" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.fastutil" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.aetherDependencyResolver" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.compiler.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.maven.resolver.provider" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.debugger.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.debugger" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.smRunner" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.impl.lang" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger.impl.shared" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="fleet.rpc" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.rpc" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.debugger.memory.agent" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.remoteServers" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.ui" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.uast" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.jps.build.dependencyGraph" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.jgoodies.forms" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.protobuf" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.gson" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.caffeine" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.kotlinx.coroutines.core" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.typeMigration" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.manifest" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.debugger.impl.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.execution.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.impl.inspections" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.uast.ide" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.jvm.analysis.quickFix" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.uiDesigner" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.langInjection" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.debugger.impl.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.execution.impl.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="training" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.performanceTesting.vcs" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="com.jetbrains.performancePlugin" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="org.jetbrains.plugins.terminal" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger.impl.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.kernel" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.kotlinx.serialization.json" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.rpc.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.langInjection.backend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.langInjection.jps" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.duplicates.analysis" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="com.intellij.modules.ultimate" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.duplicates" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.xml.parser" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.jam" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.profiler.common" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.profiler.ultimate.ideaAsyncProfiler" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.collaborationTools" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="com.intellij.copyright" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.protobuf" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.jgoodies.forms" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger.impl" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

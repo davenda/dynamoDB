@@ -1,0 +1,10 @@
+<!--
+  Extensions that require the IntelliJ AI Assistant plugin (com.intellij.ml.llm).
+  This file is only loaded when that plugin is present (declared as optional in plugin.xml).
+  Phase 2: wire AiAssistantBridge here.
+-->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- placeholder — add AI Assistant SDK extension points here in Phase 2 -->
+    </extensions>
+</idea-plugin>

@@ -1,0 +1,138 @@
+<templateSet group="DynamoDB (DQL)">
+
+  <!-- ── SELECT patterns ─────────────────────────────────────────────────── -->
+
+  <template name="dql.query.pk"
+            value="SELECT *&#10;FROM $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;LIMIT $LIMIT$"
+            description="Query by partition key"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"   expression=""           defaultValue="&quot;MyTable&quot;" alwaysStopAt="true"/>
+    <variable name="PK"      expression=""           defaultValue="&quot;pk&quot;"      alwaysStopAt="true"/>
+    <variable name="PK_VAL"  expression=""           defaultValue="&quot;pkVal&quot;"   alwaysStopAt="true"/>
+    <variable name="LIMIT"   expression=""           defaultValue="50"                  alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.query.pk.sk"
+            value="SELECT *&#10;FROM $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;  AND #$SK$ = :$SK_VAL$&#10;LIMIT $LIMIT$"
+            description="Query by partition key + sort key"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"   expression="" defaultValue="&quot;MyTable&quot;" alwaysStopAt="true"/>
+    <variable name="PK"      expression="" defaultValue="&quot;pk&quot;"      alwaysStopAt="true"/>
+    <variable name="PK_VAL"  expression="" defaultValue="&quot;pkVal&quot;"   alwaysStopAt="true"/>
+    <variable name="SK"      expression="" defaultValue="&quot;sk&quot;"      alwaysStopAt="true"/>
+    <variable name="SK_VAL"  expression="" defaultValue="&quot;skVal&quot;"   alwaysStopAt="true"/>
+    <variable name="LIMIT"   expression="" defaultValue="50"                  alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.query.gsi"
+            value="SELECT *&#10;FROM $TABLE$&#10;USE INDEX ($GSI$)&#10;WHERE #$GSI_PK$ = :$GSI_PK_VAL$&#10;LIMIT $LIMIT$&#10;DESC"
+            description="Query via GSI"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"       expression="" defaultValue="&quot;MyTable&quot;"  alwaysStopAt="true"/>
+    <variable name="GSI"         expression="" defaultValue="&quot;GSI_Name&quot;" alwaysStopAt="true"/>
+    <variable name="GSI_PK"      expression="" defaultValue="&quot;gsiPk&quot;"    alwaysStopAt="true"/>
+    <variable name="GSI_PK_VAL"  expression="" defaultValue="&quot;gsiPkVal&quot;" alwaysStopAt="true"/>
+    <variable name="LIMIT"       expression="" defaultValue="50"                   alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.query.begins_with"
+            value="SELECT *&#10;FROM $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;  AND begins_with(#$SK$, :$SK_PREFIX$)&#10;LIMIT $LIMIT$"
+            description="Query with begins_with on sort key"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"     expression="" defaultValue="&quot;MyTable&quot;"   alwaysStopAt="true"/>
+    <variable name="PK"        expression="" defaultValue="&quot;pk&quot;"         alwaysStopAt="true"/>
+    <variable name="PK_VAL"    expression="" defaultValue="&quot;pkVal&quot;"      alwaysStopAt="true"/>
+    <variable name="SK"        expression="" defaultValue="&quot;sk&quot;"         alwaysStopAt="true"/>
+    <variable name="SK_PREFIX" expression="" defaultValue="&quot;ORDER#&quot;"     alwaysStopAt="true"/>
+    <variable name="LIMIT"     expression="" defaultValue="50"                     alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.query.between"
+            value="SELECT *&#10;FROM $TABLE$&#10;USE INDEX ($GSI$)&#10;WHERE #$PK$ = :$PK_VAL$&#10;  AND #$SK$ BETWEEN :$FROM$ AND :$TO$&#10;LIMIT 100&#10;DESC"
+            description="Query with BETWEEN (e.g. date range)"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"   expression="" defaultValue="&quot;MyTable&quot;"           alwaysStopAt="true"/>
+    <variable name="GSI"     expression="" defaultValue="&quot;GSI_DateIndex&quot;"     alwaysStopAt="true"/>
+    <variable name="PK"      expression="" defaultValue="&quot;pk&quot;"                alwaysStopAt="true"/>
+    <variable name="PK_VAL"  expression="" defaultValue="&quot;pkVal&quot;"             alwaysStopAt="true"/>
+    <variable name="SK"      expression="" defaultValue="&quot;createdAt&quot;"         alwaysStopAt="true"/>
+    <variable name="FROM"    expression="" defaultValue="&quot;2026-01-01T00:00:00Z&quot;" alwaysStopAt="true"/>
+    <variable name="TO"      expression="" defaultValue="&quot;2026-12-31T23:59:59Z&quot;" alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <!-- ── UPDATE patterns ─────────────────────────────────────────────────── -->
+
+  <template name="dql.update.set"
+            value="UPDATE $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;SET #$ATTR$ = :$NEW_VAL$"
+            description="Update — SET attribute"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"   expression="" defaultValue="&quot;MyTable&quot;" alwaysStopAt="true"/>
+    <variable name="PK"      expression="" defaultValue="&quot;pk&quot;"      alwaysStopAt="true"/>
+    <variable name="PK_VAL"  expression="" defaultValue="&quot;pkVal&quot;"   alwaysStopAt="true"/>
+    <variable name="ATTR"    expression="" defaultValue="&quot;status&quot;"  alwaysStopAt="true"/>
+    <variable name="NEW_VAL" expression="" defaultValue="&quot;ACTIVE&quot;"  alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.update.if_not_exists"
+            value="UPDATE $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;SET #$ATTR$ = if_not_exists(#$ATTR$, :$DEFAULT$)"
+            description="Update — SET with if_not_exists (initialize-only)"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"   expression="" defaultValue="&quot;MyTable&quot;" alwaysStopAt="true"/>
+    <variable name="PK"      expression="" defaultValue="&quot;pk&quot;"      alwaysStopAt="true"/>
+    <variable name="PK_VAL"  expression="" defaultValue="&quot;pkVal&quot;"   alwaysStopAt="true"/>
+    <variable name="ATTR"    expression="" defaultValue="&quot;counter&quot;" alwaysStopAt="true"/>
+    <variable name="DEFAULT" expression="" defaultValue="&quot;:zero&quot;"   alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.update.increment"
+            value="UPDATE $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;SET #$COUNTER$ = if_not_exists(#$COUNTER$, :zero) + :one"
+            description="Update — atomic counter increment"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"   expression="" defaultValue="&quot;MyTable&quot;" alwaysStopAt="true"/>
+    <variable name="PK"      expression="" defaultValue="&quot;pk&quot;"      alwaysStopAt="true"/>
+    <variable name="PK_VAL"  expression="" defaultValue="&quot;pkVal&quot;"   alwaysStopAt="true"/>
+    <variable name="COUNTER" expression="" defaultValue="&quot;views&quot;"   alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.update.list_append"
+            value="UPDATE $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;SET #$LIST$ = list_append(if_not_exists(#$LIST$, :emptyList), :$NEW_ITEMS$)"
+            description="Update — append items to a list attribute"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"     expression="" defaultValue="&quot;MyTable&quot;"  alwaysStopAt="true"/>
+    <variable name="PK"        expression="" defaultValue="&quot;pk&quot;"        alwaysStopAt="true"/>
+    <variable name="PK_VAL"    expression="" defaultValue="&quot;pkVal&quot;"     alwaysStopAt="true"/>
+    <variable name="LIST"      expression="" defaultValue="&quot;tags&quot;"      alwaysStopAt="true"/>
+    <variable name="NEW_ITEMS" expression="" defaultValue="&quot;newItems&quot;"  alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <template name="dql.update.remove"
+            value="UPDATE $TABLE$&#10;WHERE #$PK$ = :$PK_VAL$&#10;REMOVE #$ATTR$"
+            description="Update — REMOVE attribute"
+            toReformat="true" toShortenFQNames="true">
+    <variable name="TABLE"  expression="" defaultValue="&quot;MyTable&quot;" alwaysStopAt="true"/>
+    <variable name="PK"     expression="" defaultValue="&quot;pk&quot;"      alwaysStopAt="true"/>
+    <variable name="PK_VAL" expression="" defaultValue="&quot;pkVal&quot;"   alwaysStopAt="true"/>
+    <variable name="ATTR"   expression="" defaultValue="&quot;tempField&quot;" alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+  <!-- ── Dry-run wrapper ─────────────────────────────────────────────────── -->
+
+  <template name="dql.dryrun"
+            value="--dry-run&#10;$QUERY$"
+            description="Wrap query in dry-run cost estimation"
+            toReformat="false" toShortenFQNames="false">
+    <variable name="QUERY" expression="" defaultValue="&quot;SELECT * FROM MyTable WHERE ...&quot;" alwaysStopAt="true"/>
+    <context><option name="DynamoQuery" value="true"/></context>
+  </template>
+
+</templateSet>

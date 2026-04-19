@@ -1,0 +1,15 @@
+<ivy-module version="2.0">
+  <info organisation="bundledModule" module="intellij.database.dialects.mssql.ex" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="intellij.database.dialects.mssql.ex" ext="jar" conf="default" url="plugins/DatabaseTools/lib/modules"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.grid.core.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.database.dialects.base.ex" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.database.dialects.mssql" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.database.sql.common.impl" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

@@ -1,0 +1,32 @@
+<ivy-module version="2.0">
+  <info organisation="bundledPlugin" module="Git4Idea" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="vcs-git-frontend" ext="jar" conf="default" url="plugins/vcs-git/lib"/>
+    <artifact name="vcs-git" ext="jar" conf="default" url="plugins/vcs-git/lib"/>
+    <artifact name="git4idea-rt" ext="jar" conf="default" url="plugins/vcs-git/lib"/>
+    <artifact name="intellij.vcs.git.frontend" ext="jar" conf="default" url="plugins/vcs-git/lib/modules"/>
+    <artifact name="intellij.vcs.git.coverage" ext="jar" conf="default" url="plugins/vcs-git/lib/modules"/>
+    <artifact name="intellij.vcs.git.localHistory" ext="jar" conf="default" url="plugins/vcs-git/lib/modules"/>
+    <artifact name="intellij.vcs.git.terminal" ext="jar" conf="default" url="plugins/vcs-git/lib/modules"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledPlugin" name="com.jetbrains.performancePlugin" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.dvcs" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.log.graph.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.collaborationTools" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.ide.impl.wsl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.lvcs.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="org.jetbrains.plugins.terminal" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.log" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.coverage" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.impl.shared" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.dvcs.impl.shared" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.searchEverywhere.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.impl.shared" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.dvcs.impl.shared" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

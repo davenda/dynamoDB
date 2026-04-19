@@ -1,0 +1,27 @@
+<ivy-module version="2.0">
+  <info organisation="bundledModule" module="intellij.database.impl" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="intellij.database.impl" ext="jar" conf="default" url="plugins/DatabaseTools/lib/modules"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.grid" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.grid.scripting.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.grid.types" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.grid.csv.core.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.grid.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.grid.core.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.grid.charts.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.database.sql" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.database.core.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.database.jdbcConsole" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.database.connectivity" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.execution.serviceView" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.libraries.maven.resolver.provider" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="intellij.grid.plugin" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="com.intellij.platform.images" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

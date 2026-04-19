@@ -1,0 +1,143 @@
+{
+  parserClass="com.yourplugin.dynamodb.language.parser.DynamoQueryParser"
+  parserUtilClass="com.intellij.lang.parser.GeneratedParserUtilBase"
+
+  extends="com.intellij.extapi.psi.ASTWrapperPsiElement"
+
+  psiClassPrefix="DynamoQuery"
+  psiImplClassSuffix="Impl"
+  psiPackage="com.yourplugin.dynamodb.language.psi"
+  psiImplPackage="com.yourplugin.dynamodb.language.psi.impl"
+
+  elementTypeHolderClass="com.yourplugin.dynamodb.language.psi.DynamoQueryTypes"
+  elementTypeClass="com.yourplugin.dynamodb.language.psi.DynamoQueryElementType"
+  tokenTypeClass="com.yourplugin.dynamodb.language.psi.DynamoQueryTokenType"
+
+  tokens=[
+    /* DML */
+    SELECT='SELECT' FROM='FROM' WHERE='WHERE' USE='USE' INDEX='INDEX'
+    LIMIT='LIMIT' DESC='DESC' ASC='ASC'
+    UPDATE='UPDATE' SET='SET' REMOVE='REMOVE' ADD='ADD' DELETE='DELETE'
+    /* Conditions */
+    AND='AND' OR='OR' NOT='NOT'
+    BETWEEN='BETWEEN' IN='IN'
+    BEGINS_WITH='begins_with' CONTAINS='contains' EXISTS='exists'
+    SIZE='size' TYPE='type' ATTRIBUTE_TYPE='attribute_type'
+    IF_NOT_EXISTS='if_not_exists' LIST_APPEND='list_append'
+    /* Directives */
+    DRY_RUN='--dry-run'
+    /* Operators */
+    EQ='=' NEQ='<>' LT='<' LTE='<=' GT='>' GTE='>='
+    STAR='*' PLUS='+' MINUS='-' DOT='.' COMMA=',' LPAREN='(' RPAREN=')'
+    COLON=':' HASH='#'
+    /* Lexer token names */
+    IDENTIFIER='IDENTIFIER'
+    NUMBER='NUMBER'
+    STRING='STRING'
+    BOOLEAN='BOOLEAN'
+    NULL='NULL'
+    LINE_COMMENT='LINE_COMMENT'
+    BLOCK_COMMENT='BLOCK_COMMENT'
+  ]
+}
+
+/* ── Top-level ─────────────────────────────────────────────────────────────── */
+root ::= statement*
+
+statement ::= dryRunDirective? (selectStatement | updateStatement)
+
+dryRunDirective ::= DRY_RUN
+
+/* ── SELECT ────────────────────────────────────────────────────────────────── */
+selectStatement ::=
+    SELECT projectionList
+    FROM tableRef
+    (USE INDEX indexClause)?
+    (WHERE conditionExpr)?
+    (LIMIT NUMBER)?
+    sortOrder?
+
+projectionList ::= IDENTIFIER (COMMA IDENTIFIER)* | STAR
+
+tableRef ::= IDENTIFIER
+
+indexClause ::= LPAREN IDENTIFIER RPAREN
+
+sortOrder ::= ASC | DESC
+
+/* ── UPDATE ────────────────────────────────────────────────────────────────── */
+updateStatement ::=
+    UPDATE tableRef
+    (WHERE conditionExpr)?
+    updateClause+
+
+updateClause ::=
+    setClause
+  | removeClause
+  | addClause
+  | deleteClause
+
+setClause    ::= SET    setAssignment (COMMA setAssignment)*
+removeClause ::= REMOVE attrPath (COMMA attrPath)*
+addClause    ::= ADD    attrPath value
+deleteClause ::= DELETE attrPath value   /* for SS/NS */
+
+setAssignment ::= attrPath EQ setExpr
+
+setExpr ::=
+    ifNotExistsExpr
+  | listAppendExpr
+  | mathExpr
+  | value
+
+ifNotExistsExpr ::= IF_NOT_EXISTS LPAREN attrPath COMMA value RPAREN
+listAppendExpr  ::= LIST_APPEND   LPAREN attrPath COMMA value RPAREN
+
+mathExpr ::= attrPath PLUS value | attrPath MINUS value
+
+/* ── Condition expressions ─────────────────────────────────────────────────── */
+conditionExpr ::= orExpr
+
+orExpr  ::= andExpr  (OR  andExpr)*
+andExpr ::= notExpr  (AND notExpr)*
+notExpr ::= NOT? primaryCondition
+
+primaryCondition ::=
+    comparisonExpr
+  | betweenExpr
+  | inExpr
+  | functionCondition
+  | LPAREN conditionExpr RPAREN
+
+comparisonExpr ::= attrPath comparisonOp value
+comparisonOp   ::= EQ | NEQ | LT | LTE | GT | GTE
+
+betweenExpr ::= attrPath BETWEEN value AND value
+inExpr      ::= attrPath IN LPAREN valueList RPAREN
+valueList   ::= value (COMMA value)*
+
+functionCondition ::=
+    beginsWithExpr
+  | containsExpr
+  | existsExpr
+  | attributeTypeExpr
+  | sizeComparison
+
+beginsWithExpr    ::= BEGINS_WITH    LPAREN attrPath COMMA value   RPAREN
+containsExpr      ::= CONTAINS       LPAREN attrPath COMMA value   RPAREN
+existsExpr        ::= EXISTS         LPAREN attrPath               RPAREN
+attributeTypeExpr ::= ATTRIBUTE_TYPE LPAREN attrPath COMMA value   RPAREN
+sizeComparison    ::= SIZE           LPAREN attrPath RPAREN comparisonOp value
+
+/* ── Attribute paths (supports nested: a.b.c and list index: a[0]) ─────────── */
+attrPath ::= attrPathSegment (DOT attrPathSegment)*
+
+attrPathSegment ::= nameRef | nameRef LPAREN NUMBER RPAREN  /* list index */
+
+nameRef ::= HASH? IDENTIFIER   /* #name (ExpressionAttributeNames) */
+
+/* ── Values ────────────────────────────────────────────────────────────────── */
+value ::= paramRef | literalValue
+
+paramRef    ::= COLON IDENTIFIER   /* :val (ExpressionAttributeValues) */
+literalValue ::= STRING | NUMBER | BOOLEAN | NULL

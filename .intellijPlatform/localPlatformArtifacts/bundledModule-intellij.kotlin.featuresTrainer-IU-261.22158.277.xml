@@ -1,0 +1,11 @@
+<ivy-module version="2.0">
+  <info organisation="bundledModule" module="intellij.kotlin.featuresTrainer" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications/>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.java.featuresTrainer" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="training" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

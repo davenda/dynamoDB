@@ -1,0 +1,23 @@
+<ivy-module version="2.0">
+  <info organisation="bundledPlugin" module="training" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="assertj-swing" ext="jar" conf="default" url="plugins/featuresTrainer/lib"/>
+    <artifact name="assertj" ext="jar" conf="default" url="plugins/featuresTrainer/lib"/>
+    <artifact name="featuresTrainer" ext="jar" conf="default" url="plugins/featuresTrainer/lib"/>
+    <artifact name="git-learning-project" ext="jar" conf="default" url="plugins/featuresTrainer/lib"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.platform.tips" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.lvcs.impl" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.vcs.log" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="Git4Idea" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.ide.newUiOnboarding" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.ide.newUsersOnboarding" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.kotlin.featuresTrainer" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.java.featuresTrainer" rev="IU-261.22158.277"/>
+    <dependency org="bundledPlugin" name="org.jetbrains.kotlin" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

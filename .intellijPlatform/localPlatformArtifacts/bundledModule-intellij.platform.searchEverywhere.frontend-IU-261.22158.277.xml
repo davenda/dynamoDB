@@ -1,0 +1,13 @@
+<ivy-module version="2.0">
+  <info organisation="bundledModule" module="intellij.platform.searchEverywhere.frontend" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="intellij.platform.searchEverywhere.frontend" ext="jar" conf="default" url="lib"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.platform.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.searchEverywhere" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

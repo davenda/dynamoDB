@@ -1,0 +1,18 @@
+<ivy-module version="2.0">
+  <info organisation="bundledModule" module="intellij.platform.debugger.impl.frontend" revision="IU-261.22158.277"/>
+  <configurations>
+    <conf name="default" visibility="public"/>
+  </configurations>
+  <publications>
+    <artifact name="intellij.platform.debugger.impl.frontend" ext="jar" conf="default" url="lib"/>
+  </publications>
+  <dependencies>
+    <dependency org="bundledModule" name="intellij.platform.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.execution.impl.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger.impl.shared" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger.impl.ui" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.debugger.impl.rpc" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.rpc.topics.frontend" rev="IU-261.22158.277"/>
+    <dependency org="bundledModule" name="intellij.platform.rpc.topics" rev="IU-261.22158.277"/>
+  </dependencies>
+</ivy-module>

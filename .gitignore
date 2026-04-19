@@ -1,0 +1,8 @@
+.gradle/
+build/
+src/main/gen/          # Grammar-Kit generated sources
+*.class
+*.jar
+.idea/
+*.iml
+local.properties

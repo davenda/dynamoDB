@@ -1,0 +1,111 @@
+<idea-plugin>
+    <id>com.dawitdiriba.dynamodb-pro</id>
+    <name>DynamoDB Pro</name>
+    <vendor email="dawitend2@gmail.com" url="https://dynamodbpro.vercel.app">Dawit Diriba</vendor>
+
+    <description><![CDATA[
+        <b>DynamoDB Pro</b> is a powerful DynamoDB client plugin for IntelliJ IDEA.<br/><br/>
+
+        <b>Features:</b>
+        <ul>
+            <li>Connect to AWS DynamoDB (local and remote) directly from your IDE</li>
+            <li>Browse tables, indexes, and items in a tree view</li>
+            <li>Run DQL (DynamoDB Query Language) queries with syntax highlighting and auto-completion</li>
+            <li>View and paginate query results in an editor tab</li>
+            <li>Export table data to CSV or JSON</li>
+            <li>Create and delete tables and items</li>
+            <li>Support for multiple simultaneous connections</li>
+            <li>Live templates for common DynamoDB query patterns</li>
+        </ul>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <b>1.0.0</b>
+        <ul>
+            <li>Initial release</li>
+            <li>DQL query editor with syntax highlighting and auto-completion</li>
+            <li>Table browser with pagination</li>
+            <li>CSV and JSON export</li>
+            <li>Multiple connection support</li>
+        </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.database</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- ── Tool Window ─────────────────────────────────────────────────── -->
+        <toolWindow id="DynamoDB Pro"
+                    anchor="right"
+                    secondary="false"
+                    canCloseContents="false"
+                    factoryClass="com.yourplugin.dynamodb.ui.DynamoToolWindowFactory"
+                    icon="icons/dynamodb.svg"/>
+
+        <!-- ── Application-level services ─────────────────────────────────── -->
+        <applicationService
+            serviceImplementation="com.yourplugin.dynamodb.services.DynamoConnectionRegistry"/>
+
+        <!-- ── Project-level services ──────────────────────────────────────── -->
+        <projectService
+            serviceImplementation="com.yourplugin.dynamodb.services.SchemaMapService"/>
+        <projectService
+            serviceImplementation="com.yourplugin.dynamodb.services.CostEstimatorService"/>
+
+        <!-- ── DQL Language ────────────────────────────────────────────────── -->
+        <fileType name="DynamoQuery"
+                  implementationClass="com.yourplugin.dynamodb.language.DynamoQueryFileType"
+                  fieldName="INSTANCE"
+                  language="DynamoQuery"
+                  extensions="dql"/>
+
+        <lang.parserDefinition
+            language="DynamoQuery"
+            implementationClass="com.yourplugin.dynamodb.language.DynamoQueryParserDefinition"/>
+
+        <lang.syntaxHighlighterFactory
+            language="DynamoQuery"
+            implementationClass="com.yourplugin.dynamodb.language.DynamoQuerySyntaxHighlighterFactory"/>
+
+        <colorSettingsPage
+            implementation="com.yourplugin.dynamodb.language.DynamoQueryColorSettingsPage"/>
+
+        <completion.contributor
+            language="DynamoQuery"
+            implementationClass="com.yourplugin.dynamodb.language.DynamoQueryCompletionContributor"/>
+
+        <!-- ── Live Templates ──────────────────────────────────────────────── -->
+        <defaultLiveTemplates file="/liveTemplates/DynamoDB.xml"/>
+        <liveTemplateContext
+            implementation="com.yourplugin.dynamodb.language.DynamoQueryLiveTemplateContext"
+            contextId="DynamoQuery"/>
+
+        <!-- ── Notifications ───────────────────────────────────────────────── -->
+        <notificationGroup id="DynamoDB Pro" displayType="BALLOON"/>
+
+        <!-- ── Settings ────────────────────────────────────────────────────── -->
+        <applicationService
+            serviceImplementation="com.yourplugin.dynamodb.settings.DynamoProSettings"/>
+
+        <applicationConfigurable
+            parentId="tools"
+            implementation="com.yourplugin.dynamodb.settings.DynamoProConfigurable"
+            id="com.yourplugin.dynamodb.settings.DynamoProConfigurable"
+            displayName="DynamoDB Pro"/>
+
+        <fileEditorProvider implementation="com.yourplugin.dynamodb.editor.DynamoTableFileEditorProvider"/>
+
+    </extensions>
+
+    <actions>
+        <group id="DynamoDBPro.MainMenu" text="DynamoDB Pro" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <action id="DynamoDBPro.ConnectAction"
+                    class="com.yourplugin.dynamodb.actions.ConnectAction"
+                    text="Connect to DynamoDB…"
+                    description="Add a new DynamoDB connection"/>
+        </group>
+    </actions>
+</idea-plugin>
