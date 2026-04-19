@@ -6,3 +6,6 @@ src/main/gen/          # Grammar-Kit generated sources
 .idea/
 *.iml
 local.properties
+.DS_Store
+local-dynamo/
+*.hprof
