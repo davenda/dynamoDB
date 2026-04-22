@@ -20,6 +20,14 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>1.0.1</b>
+        <ul>
+            <li>Added Native DynamoDB Query mode with radio toggle (SQL / DynamoDB Query)</li>
+            <li>Support for FilterExpression, KeyConditionExpression, attribute names/values</li>
+            <li>Fixed SQL WHERE clause support (e.g. city = Tampa style queries)</li>
+            <li>Fixed pagination: respects LIMIT clause, Next button greys out when limit reached</li>
+            <li>Fixed Rows Per Page selector</li>
+        </ul>
         <b>1.0.0</b>
         <ul>
             <li>Initial release</li>
