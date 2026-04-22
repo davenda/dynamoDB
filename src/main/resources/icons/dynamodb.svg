@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <!-- DynamoDB-style cylinder icon -->
-  <ellipse cx="8" cy="3.5" rx="6" ry="2" fill="#3F8EFC"/>
-  <rect x="2" y="3.5" width="12" height="7" fill="#2563EB"/>
-  <ellipse cx="8" cy="10.5" rx="6" ry="2" fill="#60A5FA"/>
-  <!-- highlight line -->
-  <ellipse cx="8" cy="6.5" rx="6" ry="1.5" fill="none" stroke="#93C5FD" stroke-width="0.6" opacity="0.6"/>
-</svg>

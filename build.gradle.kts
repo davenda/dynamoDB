@@ -9,9 +9,7 @@ plugins {
 
 group = "com.yourplugin"
 
-// Build number is stored in gradle.properties and auto-incremented after each buildPlugin run
-val buildNumber = (findProperty("buildNumber") ?: "1").toString().toInt()
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -83,8 +81,8 @@ intellijPlatform {
             </ul>
         """.trimIndent()
         ideaVersion {
-            sinceBuild = "261"   // IntelliJ 2026.1
-            untilBuild = "261.*"
+            sinceBuild = "243"   // IntelliJ 2024.3
+            untilBuild = "261.*" // IntelliJ 2026.1
         }
     }
 
@@ -175,20 +173,5 @@ tasks {
         enabled = false
     }
 
-    // After a successful buildPlugin run, bump buildNumber in gradle.properties so the
-            // next build automatically gets a higher version (1.0.0.N+1).
-    named("buildPlugin") {
-        doLast {
-            val propsFile = rootProject.file("gradle.properties")
-            val next = buildNumber + 1
-            // Replace in-place to preserve comments and formatting
-            propsFile.writeText(
-                propsFile.readText().replace(
-                    Regex("buildNumber=\\d+"),
-                    "buildNumber=$next"
-                )
-            )
-            println("✓ Build $buildNumber packaged — next build will be $next")
-        }
-    }
+
 }

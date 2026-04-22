@@ -62,6 +62,13 @@ class QueryRunnerPanel(
         }
     }
 
+    // ── Query mode toggle ─────────────────────────────────────────────────────
+    private enum class QueryMode { SQL, NATIVE }
+    private var queryMode = QueryMode.SQL
+
+    private val sqlRadio    = JRadioButton("SQL", true)
+    private val nativeRadio = JRadioButton("DynamoDB Native", false)
+
     // ── Toolbar ───────────────────────────────────────────────────────────────
     private val runBtn      = JButton("▶ Execute").apply { addActionListener { execute() } }
     private val clearBtn    = JButton("✕ Clear").apply { addActionListener { clearResults() } }
@@ -76,12 +83,36 @@ class QueryRunnerPanel(
     }
     private var rowSorter: TableRowSorter<DefaultTableModel>? = null
 
+    // ── Native DynamoDB query inputs ──────────────────────────────────────────
+    private val nativeOperationCombo = JComboBox(arrayOf("Scan", "Query"))
+    private val nativeKeyCondField = JTextField().apply {
+        toolTipText = "Key Condition Expression (required for Query). e.g. cafe_id = :pk"
+        putClientProperty("JTextField.placeholderText", "cafe_id = :pk AND begins_with(sort_key, :prefix)")
+    }
+    private val nativeFilterField = JTextField().apply {
+        toolTipText = "Filter Expression (optional). e.g. city = :city"
+        putClientProperty("JTextField.placeholderText", "city = :city AND age > :minAge")
+    }
+    private val nativeAttrNamesArea = JTextArea(3, 1).apply {
+        toolTipText = "Expression Attribute Names (JSON). e.g. {\"#n\": \"name\"}"
+        lineWrap = true; wrapStyleWord = true; font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        putClientProperty("JTextField.placeholderText", "{\"#n\": \"name\"}")
+    }
+    private val nativeAttrValuesArea = JTextArea(4, 1).apply {
+        toolTipText = "Expression Attribute Values (JSON). e.g. {\":city\": \"Tampa\", \":minAge\": 25}"
+        lineWrap = true; wrapStyleWord = true; font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        putClientProperty("JTextField.placeholderText", "{\":city\": \"Tampa\", \":minAge\": 25}")
+    }
+    // Cards to switch between SQL editor and native form
+    private val inputCards = CardLayout()
+    private val inputPanel = JPanel(inputCards)
+
     // ── Results ───────────────────────────────────────────────────────────────
     private val tableModel = object : DefaultTableModel(0, 0) {
         override fun isCellEditable(r: Int, c: Int) = false
     }
     private val resultsTable = JBTable(tableModel).apply {
-        autoResizeMode = JTable.AUTO_RESIZE_OFF
+        autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
         rowHeight = 22
         setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
         tableHeader.addMouseListener(object : MouseAdapter() {
@@ -92,6 +123,26 @@ class QueryRunnerPanel(
                 }
             }
         })
+    }
+
+    private fun fitColumnsToContent() {
+        val colCount = resultsTable.columnCount
+        if (colCount == 0) return
+        val minColWidth = 80
+        for (col in 0 until colCount) {
+            var maxWidth = minColWidth
+            val headerRenderer = resultsTable.tableHeader.defaultRenderer
+            val headerComp = headerRenderer.getTableCellRendererComponent(
+                resultsTable, resultsTable.columnModel.getColumn(col).headerValue, false, false, -1, col)
+            maxWidth = maxOf(maxWidth, headerComp.preferredSize.width + 16)
+            for (row in 0 until minOf(resultsTable.rowCount, 100)) {
+                val renderer = resultsTable.getCellRenderer(row, col)
+                val comp = resultsTable.prepareRenderer(renderer, row, col)
+                maxWidth = maxOf(maxWidth, comp.preferredSize.width + 8)
+            }
+            resultsTable.columnModel.getColumn(col).preferredWidth = maxWidth
+        }
+        resultsTable.revalidate()
     }
 
     private fun autoFitColumn(col: Int) {
@@ -204,6 +255,10 @@ class QueryRunnerPanel(
     }
 
     private fun buildToolbar(): JComponent {
+        ButtonGroup().also { it.add(sqlRadio); it.add(nativeRadio) }
+        sqlRadio.addActionListener    { switchMode(QueryMode.SQL) }
+        nativeRadio.addActionListener { switchMode(QueryMode.NATIVE) }
+
         return JToolBar().apply {
             isFloatable = false
             border = BorderFactory.createEmptyBorder(4, 6, 4, 6)
@@ -211,6 +266,11 @@ class QueryRunnerPanel(
             add(toolbarSolidDivider())
             add(clearBtn)
             add(rawToggle)
+            add(toolbarSolidDivider())
+            add(JLabel("Mode:"))
+            add(Box.createHorizontalStrut(4))
+            add(sqlRadio)
+            add(nativeRadio)
             add(toolbarSolidDivider())
             add(JLabel("Filter:"))
             add(Box.createHorizontalStrut(4))
@@ -235,7 +295,57 @@ class QueryRunnerPanel(
         }
     }
 
+    private fun buildNativeForm(): JComponent {
+        // Operation selector row
+        val opRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+            add(JLabel("Operation:"))
+            add(nativeOperationCombo)
+            nativeOperationCombo.addActionListener {
+                val isQuery = nativeOperationCombo.selectedItem == "Query"
+                nativeKeyCondField.isEnabled = isQuery
+            }
+        }
+
+        val form = JPanel(GridBagLayout())
+        val gbc = GridBagConstraints().apply {
+            insets = Insets(3, 4, 3, 4)
+            fill = GridBagConstraints.HORIZONTAL
+            anchor = GridBagConstraints.NORTHWEST
+        }
+
+        fun addRow(label: String, comp: JComponent, multiLine: Boolean = false, row: Int) {
+            gbc.gridy = row
+            gbc.gridx = 0; gbc.weightx = 0.0; gbc.weighty = 0.0
+            form.add(JLabel(label), gbc)
+            gbc.gridx = 1; gbc.weightx = 1.0
+            if (multiLine) { gbc.weighty = 0.5; gbc.fill = GridBagConstraints.BOTH }
+            form.add(if (multiLine) JBScrollPane(comp) else comp, gbc)
+            gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weighty = 0.0
+        }
+
+        addRow("Operation:", opRow, row = 0)
+        addRow("Key Condition:", nativeKeyCondField, row = 1)
+        addRow("Filter:", nativeFilterField, row = 2)
+        addRow("Attr Names:", nativeAttrNamesArea, multiLine = true, row = 3)
+        addRow("Attr Values:", nativeAttrValuesArea, multiLine = true, row = 4)
+
+        // hint label
+        gbc.gridy = 5; gbc.gridx = 1; gbc.weightx = 1.0; gbc.weighty = 0.0
+        val hint = JLabel("<html><small>Attr Names: {\"#n\": \"name\"} &nbsp;|&nbsp; " +
+                "Attr Values: {\":city\": \"Tampa\", \":age\": 25, \":flag\": true}</small></html>").apply {
+            foreground = UIManager.getColor("Label.disabledForeground") ?: foreground
+        }
+        form.add(hint, gbc)
+
+        return JBScrollPane(form)
+    }
+
     private fun buildMainArea(): JComponent {
+        // Build inputPanel cards
+        inputPanel.add(editor.component, "sql")
+        inputPanel.add(buildNativeForm(), "native")
+        inputCards.show(inputPanel, "sql")
+
         val resultsPanelWithFooter = JPanel(BorderLayout()).apply {
             add(resultPanel, BorderLayout.CENTER)
             add(buildPaginationBar(), BorderLayout.SOUTH)
@@ -244,9 +354,19 @@ class QueryRunnerPanel(
             firstComponent  = resultsPanelWithFooter
             secondComponent = detailPanel
         }
-        return JBSplitter(true, 0.3f).apply {
-            firstComponent  = editor.component
+        return JBSplitter(true, 0.35f).apply {
+            firstComponent  = inputPanel
             secondComponent = rightSplit
+        }
+    }
+
+    private fun switchMode(mode: QueryMode) {
+        queryMode = mode
+        inputCards.show(inputPanel, if (mode == QueryMode.SQL) "sql" else "native")
+        // Update key condition field state
+        if (mode == QueryMode.NATIVE) {
+            val isQuery = nativeOperationCombo.selectedItem == "Query"
+            nativeKeyCondField.isEnabled = isQuery
         }
     }
 
@@ -269,8 +389,12 @@ class QueryRunnerPanel(
         pageStartOffset.clear()
         pageStartOffset.add(0)
         currentPage = 1
-        val dql = ApplicationManager.getApplication().runReadAction<String> { editor.document.text }.trim()
-        queryTotalLimit = extractTotalLimit(dql)
+        if (queryMode == QueryMode.SQL) {
+            val dql = ApplicationManager.getApplication().runReadAction<String> { editor.document.text }.trim()
+            queryTotalLimit = extractTotalLimit(dql)
+        } else {
+            queryTotalLimit = null
+        }
         loadCurrentPage()
     }
 
@@ -289,7 +413,7 @@ class QueryRunnerPanel(
         }
 
         val dql = ApplicationManager.getApplication().runReadAction<String> { editor.document.text }.trim()
-        if (dql.isBlank()) { statusLabel.text = "Query is empty"; return }
+        if (queryMode == QueryMode.SQL && dql.isBlank()) { statusLabel.text = "Query is empty"; return }
 
         runBtn.isEnabled = false
         prevPageBtn.isEnabled = false
@@ -300,7 +424,9 @@ class QueryRunnerPanel(
             try {
                 val result: ExecutionResult = runCatching {
                     val client = registry.clientFor(connectionName)
-                    if (dql.trimStart().uppercase().startsWith("UPDATE")) {
+                    if (queryMode == QueryMode.NATIVE) {
+                        executeNativeQuery(client, startKey)
+                    } else if (dql.trimStart().uppercase().startsWith("UPDATE")) {
                         executeUpdate(dql)
                     } else {
                         executeQuery(client, dql, cachedSchema, startKey)
@@ -567,36 +693,74 @@ class QueryRunnerPanel(
         schema: TableSchema?,
         startKey: Map<String, AttributeValue>?,
     ): ExecutionResult {
-        // Always use the combo-box page size for the DynamoDB request.
-        // The LIMIT in the DQL is applied as a post-fetch total cap (see loadCurrentPage).
         val pageSize = extractPageSize()
-        val isScan = !dql.contains("WHERE", ignoreCase = true)
-        return if (isScan) {
+        val hasWhere = dql.contains("WHERE", ignoreCase = true)
+
+        if (!hasWhere) {
+            // Plain scan — no WHERE
             val req = ScanRequest.builder()
                 .tableName(tableName).limit(pageSize)
                 .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
                 .apply { startKey?.let { exclusiveStartKey(it) } }
                 .build()
             val resp = client.scan(req).await()
-            ExecutionResult.QueryResult(
+            return ExecutionResult.QueryResult(
                 items = resp.items(),
                 nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
                 consumedRcu = resp.consumedCapacity()?.capacityUnits(),
             )
-        } else {
-            val keyConditionExpr = extractKeyConditionExpression(dql)
-            val (exprAttrNames, exprAttrValues) = extractAttributeReferencesAndValues(dql)
-            if (keyConditionExpr.isNullOrBlank())
-                return ExecutionResult.Error("WHERE clause must specify a key condition")
-            val indexName = Regex("""USE\s+INDEX\s*\((\w+)\)""", RegexOption.IGNORE_CASE)
-                .find(dql)?.groupValues?.get(1)
+        }
+
+        val parsed = parseDqlWhereClause(dql)
+        val indexName = Regex("""USE\s+INDEX\s*\(\s*(\S+?)\s*\)""", RegexOption.IGNORE_CASE)
+            .find(dql)?.groupValues?.get(1)
+
+        // Determine key attribute names for the table (or the chosen GSI/LSI)
+        val keyAttrNames: Set<String> = if (schema != null) {
+            val keys = mutableSetOf(schema.partitionKey.name)
+            schema.sortKey?.let { keys.add(it.name) }
+            if (indexName != null) {
+                // Also include GSI/LSI key names so they route to keyCondition
+                schema.gsis.firstOrNull { it.indexName == indexName }?.let {
+                    keys.add(it.partitionKey.name); it.sortKey?.let { sk -> keys.add(sk.name) }
+                }
+                schema.lsis.firstOrNull { it.indexName == indexName }?.let {
+                    keys.add(it.sortKey.name)
+                }
+            }
+            keys
+        } else emptySet()
+
+        // Split the parsed expression into individual AND-connected conditions
+        // then route each to keyCondition or filterExpression based on the attribute
+        val splitConditions = splitAndConditions(parsed.expression)
+        val keyCondParts = mutableListOf<String>()
+        val filterParts = mutableListOf<String>()
+
+        for (cond in splitConditions) {
+            // Find which #alias attributes appear in this condition
+            val aliasesInCond = Regex("""#(\w+)""").findAll(cond).map { it.groupValues[1] }.toSet()
+            val isKeyCondition = aliasesInCond.isNotEmpty() && aliasesInCond.all { it in keyAttrNames }
+            if (isKeyCondition && keyAttrNames.isNotEmpty()) {
+                keyCondParts.add(cond)
+            } else {
+                filterParts.add(cond)
+            }
+        }
+
+        val keyCondExpr = keyCondParts.joinToString(" AND ")
+        val filterExpr  = filterParts.joinToString(" AND ")
+
+        return if (keyCondExpr.isNotBlank()) {
+            // Use Query with key conditions; non-key conditions go to filterExpression
             val req = QueryRequest.builder()
                 .tableName(tableName).limit(pageSize)
                 .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
-                .keyConditionExpression(keyConditionExpr)
+                .keyConditionExpression(keyCondExpr)
                 .apply {
-                    if (exprAttrNames.isNotEmpty()) expressionAttributeNames(exprAttrNames)
-                    if (exprAttrValues.isNotEmpty()) expressionAttributeValues(exprAttrValues)
+                    if (filterExpr.isNotBlank()) filterExpression(filterExpr)
+                    if (parsed.attrNames.isNotEmpty()) expressionAttributeNames(parsed.attrNames)
+                    if (parsed.attrValues.isNotEmpty()) expressionAttributeValues(parsed.attrValues)
                     indexName?.let { indexName(it) }
                     startKey?.let { exclusiveStartKey(it) }
                 }
@@ -607,33 +771,263 @@ class QueryRunnerPanel(
                 nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
                 consumedRcu = resp.consumedCapacity()?.capacityUnits(),
             )
+        } else {
+            // No key conditions — fall back to Scan with filterExpression
+            val effectiveFilter = parsed.expression
+            val req = ScanRequest.builder()
+                .tableName(tableName).limit(pageSize)
+                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
+                .apply {
+                    if (effectiveFilter.isNotBlank()) filterExpression(effectiveFilter)
+                    if (parsed.attrNames.isNotEmpty()) expressionAttributeNames(parsed.attrNames)
+                    if (parsed.attrValues.isNotEmpty()) expressionAttributeValues(parsed.attrValues)
+                    startKey?.let { exclusiveStartKey(it) }
+                }
+                .build()
+            val resp = client.scan(req).await()
+            ExecutionResult.QueryResult(
+                items = resp.items(),
+                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
+                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
+            )
         }
     }
 
-    private fun extractKeyConditionExpression(dql: String): String? =
-        Regex("""WHERE\s+(.+?)(?:LIMIT|USE|$|;)""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-            .find(dql)?.groups?.get(1)?.value?.trim()?.takeIf { it.isNotEmpty() }
+    /**
+     * Splits a DynamoDB condition expression on top-level AND keywords,
+     * respecting parentheses so nested expressions are not broken.
+     */
+    private fun splitAndConditions(expr: String): List<String> {
+        val parts = mutableListOf<String>()
+        var depth = 0
+        var start = 0
+        var i = 0
+        while (i < expr.length) {
+            when {
+                expr[i] == '(' -> { depth++; i++ }
+                expr[i] == ')' -> { depth--; i++ }
+                depth == 0 && expr.substring(i).matches(Regex("""(?i)AND\b.*""")) -> {
+                    parts.add(expr.substring(start, i).trim())
+                    i += 3 // skip "AND"
+                    while (i < expr.length && expr[i].isWhitespace()) i++
+                    start = i
+                }
+                else -> i++
+            }
+        }
+        if (start < expr.length) parts.add(expr.substring(start).trim())
+        return parts.filter { it.isNotBlank() }
+    }
 
-    private fun extractAttributeReferencesAndValues(dql: String): Pair<Map<String, String>, Map<String, AttributeValue>> {
+    /**
+     * Parses the DQL WHERE clause and returns a Triple of:
+     *  1. The key-condition expression (with placeholders for all literals)
+     *  2. Expression attribute names map (#alias -> realName)
+     *  3. Expression attribute values map (:placeholder -> AttributeValue)
+     *
+     * Supports all of:
+     *  - Plain SQL style:  WHERE city = "Tampa" AND age > 25
+     *  - Hash-prefixed:    WHERE #pk = 'abc' AND #sk > 100
+     *  - Explicit params:  WHERE #pk = :pkVal  (where :pkVal resolved via `:pkVal = 'abc'` elsewhere in the DQL)
+     */
+    private data class ParsedWhere(
+        val expression: String,
+        val attrNames: Map<String, String>,
+        val attrValues: Map<String, AttributeValue>,
+    )
+
+    /** DynamoDB expression keywords / functions that must NOT be treated as attribute names */
+    private val DQL_KEYWORDS = setOf(
+        "AND", "OR", "NOT", "BETWEEN", "IN", "NULL", "TRUE", "FALSE",
+        "begins_with", "contains", "attribute_exists", "attribute_not_exists",
+        "attribute_type", "size", "if_not_exists", "list_append"
+    )
+
+    private fun parseDqlWhereClause(dql: String): ParsedWhere {
+        // Extract raw WHERE clause (stop before known trailing keywords)
+        val rawWhere = Regex(
+            """WHERE\s+(.+?)(?=\s+(?:LIMIT\b|USE\s+INDEX|ORDER\s+BY|ASC\b|DESC\b)|$|;)""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        ).find(dql)?.groups?.get(1)?.value?.trim() ?: return ParsedWhere("", emptyMap(), emptyMap())
+
         val attrNames  = mutableMapOf<String, String>()
         val attrValues = mutableMapOf<String, AttributeValue>()
-        Regex("""#(\w+)""").findAll(dql).forEach { attrNames["#${it.groups[1]!!.value}"] = it.groups[1]!!.value }
-        val whereClause = extractKeyConditionExpression(dql) ?: ""
-        Regex(""":(\w+)""").findAll(whereClause).forEach { match ->
-            val paramName = match.groups[1]!!.value
-            val valueKey  = ":$paramName"
-            val valueStr  = Regex("""$valueKey\s*=\s*['"]?([^'",\s]+)['"]?""", RegexOption.IGNORE_CASE)
-                .find(dql)?.groups?.get(1)?.value?.trim()
-            attrValues[valueKey] = if (valueStr != null) {
-                if (valueStr.toDoubleOrNull() != null) AttributeValue.builder().n(valueStr).build()
-                else AttributeValue.builder().s(valueStr).build()
-            } else AttributeValue.builder().s("<provide value>").build()
+        var paramCounter = 0
+
+        // ── Step 1: Replace string literals ('value' or "value") first so their
+        //            content is never misinterpreted as attribute names or numbers.
+        var expr = Regex("""(['"])((?:(?!\1).)*?)\1""").replace(rawWhere) { match ->
+            val paramKey = ":_lit${paramCounter++}"
+            attrValues[paramKey] = AttributeValue.builder().s(match.groupValues[2]).build()
+            paramKey
         }
-        return Pair(attrNames, attrValues)
+
+        // ── Step 2: Replace bare numeric literals with :_litN placeholders
+        expr = Regex("""(?<![:\w])(\d+(?:\.\d+)?)(?!\w)""").replace(expr) { match ->
+            val paramKey = ":_lit${paramCounter++}"
+            attrValues[paramKey] = AttributeValue.builder().n(match.groupValues[1]).build()
+            paramKey
+        }
+
+        // ── Step 3: Collect already-hash-prefixed attribute names (#attr)
+        Regex("""#(\w+)""").findAll(expr).forEach {
+            attrNames["#${it.groups[1]!!.value}"] = it.groups[1]!!.value
+        }
+
+        // ── Step 4: Auto-prefix bare attribute names (no # prefix) that are not
+        //            DQL keywords, :params, or function names followed by '('
+        //   Matches a word that:
+        //    - is not preceded by # or :
+        //    - is not followed by (   (i.e. not a function call)
+        //    - is not a known keyword
+        expr = Regex("""(?<![#:])(?<!\w)([A-Za-z_][A-Za-z0-9_]*)(?!\s*\()""").replace(expr) { match ->
+            val word = match.value
+            if (word.uppercase() in DQL_KEYWORDS.map { it.uppercase() }) {
+                word  // leave keywords alone
+            } else {
+                val alias = "#$word"
+                attrNames[alias] = word
+                alias
+            }
+        }
+
+        // ── Step 5: Resolve any explicit :param placeholders (e.g. WHERE #pk = :pkVal)
+        Regex(""":((?!_lit)\w+)""").findAll(expr).forEach { match ->
+            val paramKey = match.value
+            if (!attrValues.containsKey(paramKey)) {
+                val valueStr = Regex(
+                    """${Regex.escape(paramKey)}\s*=\s*['"]?([^'",\s\)]+)['"]?""",
+                    RegexOption.IGNORE_CASE
+                ).find(dql)?.groups?.get(1)?.value?.trim()
+                attrValues[paramKey] = when {
+                    valueStr == null -> AttributeValue.builder().s("<missing: $paramKey>").build()
+                    valueStr.toDoubleOrNull() != null -> AttributeValue.builder().n(valueStr).build()
+                    else -> AttributeValue.builder().s(valueStr).build()
+                }
+            }
+        }
+
+        return ParsedWhere(expr, attrNames, attrValues)
     }
 
     private fun executeUpdate(_dql: String): ExecutionResult =
         ExecutionResult.Error("UPDATE translation not yet implemented.")
+
+    // ── Native DynamoDB query execution ───────────────────────────────────────
+
+    private suspend fun executeNativeQuery(
+        client: software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient,
+        startKey: Map<String, AttributeValue>?,
+    ): ExecutionResult {
+        val pageSize = extractPageSize()
+        val isQuery  = nativeOperationCombo.selectedItem == "Query"
+        val keyCondExpr  = nativeKeyCondField.text.trim().takeIf { it.isNotBlank() }
+        val filterExpr   = nativeFilterField.text.trim().takeIf { it.isNotBlank() }
+        val attrNamesRaw = nativeAttrNamesArea.text.trim()
+        val attrValsRaw  = nativeAttrValuesArea.text.trim()
+
+        val exprAttrNames: Map<String, String> = if (attrNamesRaw.isNotBlank())
+            parseAttrNamesJson(attrNamesRaw) else emptyMap()
+        val exprAttrValues: Map<String, AttributeValue> = if (attrValsRaw.isNotBlank())
+            parseAttrValuesJson(attrValsRaw) else emptyMap()
+
+        // Validate that all :placeholders in expressions have corresponding values
+        val allExprs = listOfNotNull(keyCondExpr, filterExpr).joinToString(" ")
+        val usedPlaceholders = Regex(""":\w+""").findAll(allExprs).map { it.value }.toSet()
+        val missingPlaceholders = usedPlaceholders - exprAttrValues.keys
+        if (missingPlaceholders.isNotEmpty()) {
+            return ExecutionResult.Error(
+                "Missing Attribute Values for placeholder(s): ${missingPlaceholders.joinToString(", ")}\n\n" +
+                "Add them in the 'Attr Values' field, e.g.:\n" +
+                missingPlaceholders.joinToString("\n") { "  \"$it\": \"your_value\"" } +
+                "\n\nWrap all entries in { } like: {${missingPlaceholders.first()}: \"value\"}"
+            )
+        }
+
+        return if (isQuery) {
+            if (keyCondExpr == null)
+                return ExecutionResult.Error("Key Condition Expression is required for Query operation.")
+            val req = QueryRequest.builder()
+                .tableName(tableName).limit(pageSize)
+                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
+                .keyConditionExpression(keyCondExpr)
+                .apply {
+                    filterExpr?.let { filterExpression(it) }
+                    if (exprAttrNames.isNotEmpty()) expressionAttributeNames(exprAttrNames)
+                    if (exprAttrValues.isNotEmpty()) expressionAttributeValues(exprAttrValues)
+                    startKey?.let { exclusiveStartKey(it) }
+                }.build()
+            val resp = client.query(req).await()
+            ExecutionResult.QueryResult(
+                items = resp.items(),
+                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
+                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
+            )
+        } else {
+            val req = ScanRequest.builder()
+                .tableName(tableName).limit(pageSize)
+                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
+                .apply {
+                    filterExpr?.let { filterExpression(it) }
+                    if (exprAttrNames.isNotEmpty()) expressionAttributeNames(exprAttrNames)
+                    if (exprAttrValues.isNotEmpty()) expressionAttributeValues(exprAttrValues)
+                    startKey?.let { exclusiveStartKey(it) }
+                }.build()
+            val resp = client.scan(req).await()
+            ExecutionResult.QueryResult(
+                items = resp.items(),
+                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
+                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
+            )
+        }
+    }
+
+    /**
+     * Parses a simplified JSON object like {"#name": "name", "#city": "city"}
+     * into a Map<String, String> for Expression Attribute Names.
+     */
+    private fun parseAttrNamesJson(json: String): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val cleaned = json.trim().removePrefix("{").removeSuffix("}")
+        // Match "key": "value" pairs
+        val pattern = Regex(""""(#?\w+)"\s*:\s*"([^"]+)"""")
+        pattern.findAll(cleaned).forEach { match ->
+            result[match.groupValues[1]] = match.groupValues[2]
+        }
+        return result
+    }
+
+    /**
+     * Parses a simplified JSON object like {":city": "Tampa", ":age": 25, ":flag": true}
+     * into a Map<String, AttributeValue>. Supports strings, numbers, and booleans.
+     * Also supports explicit DynamoDB JSON: {":v": {"S": "Tampa"}} or {":v": {"N": "25"}}.
+     */
+    private fun parseAttrValuesJson(json: String): Map<String, AttributeValue> {
+        val result = mutableMapOf<String, AttributeValue>()
+        val cleaned = json.trim().removePrefix("{").removeSuffix("}")
+        // Try to match each "key": value pair where value can be string, number, boolean,
+        // or nested object {"S": ...} / {"N": ...} / {"BOOL": ...}
+        val stringPat  = Regex(""""(:\w+)"\s*:\s*"([^"]*)"""".trim())
+        val numberPat  = Regex(""""(:\w+)"\s*:\s*(-?\d+(?:\.\d+)?)(?=[,\s}])""")
+        val boolPat    = Regex(""""(:\w+)"\s*:\s*(true|false)(?=[,\s}])""", RegexOption.IGNORE_CASE)
+        val dynStrPat  = Regex(""""(:\w+)"\s*:\s*\{\s*"S"\s*:\s*"([^"]*)"\s*}""")
+        val dynNumPat  = Regex(""""(:\w+)"\s*:\s*\{\s*"N"\s*:\s*"([^"]*)"\s*}""")
+        val dynBoolPat = Regex(""""(:\w+)"\s*:\s*\{\s*"BOOL"\s*:\s*(true|false)\s*}""", RegexOption.IGNORE_CASE)
+
+        fun applyAll(pat: Regex, block: (MatchResult) -> AttributeValue) {
+            pat.findAll(cleaned).forEach { result[it.groupValues[1]] = block(it) }
+        }
+
+        applyAll(dynStrPat)  { AttributeValue.builder().s(it.groupValues[2]).build() }
+        applyAll(dynNumPat)  { AttributeValue.builder().n(it.groupValues[2]).build() }
+        applyAll(dynBoolPat) { AttributeValue.builder().bool(it.groupValues[2].lowercase() == "true").build() }
+        // Simple values — only add if not already resolved as DynamoDB JSON
+        applyAll(stringPat)  { m -> result.getOrPut(m.groupValues[1]) { AttributeValue.builder().s(m.groupValues[2]).build() } ; AttributeValue.builder().s(m.groupValues[2]).build() }
+        applyAll(numberPat)  { m -> result.getOrPut(m.groupValues[1]) { AttributeValue.builder().n(m.groupValues[2]).build() } ; AttributeValue.builder().n(m.groupValues[2]).build() }
+        applyAll(boolPat)    { m -> result.getOrPut(m.groupValues[1]) { AttributeValue.builder().bool(m.groupValues[2].lowercase() == "true").build() } ; AttributeValue.builder().bool(m.groupValues[2].lowercase() == "true").build() }
+
+        return result
+    }
 
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -658,6 +1052,7 @@ class QueryRunnerPanel(
         resultsTable.rowSorter = rowSorter
         applyFilter()
         resultCards.show(resultPanel, "table")
+        fitColumnsToContent()
     }
 
     private fun renderRaw() {

@@ -41,7 +41,7 @@
                     secondary="false"
                     canCloseContents="false"
                     factoryClass="com.yourplugin.dynamodb.ui.DynamoToolWindowFactory"
-                    icon="icons/dynamodb.svg"/>
+                    icon="icons/dynamodb.png"/>
 
         <!-- ── Application-level services ─────────────────────────────────── -->
         <applicationService
