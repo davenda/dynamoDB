@@ -21,6 +21,6 @@ class DynamoTableVirtualFile(
 
     override fun getPath(): String = "dynamodb://$connectionName/$tableName"
 
-    override fun isWritable(): Boolean = false
+    override fun isWritable(): Boolean = true
 }
 

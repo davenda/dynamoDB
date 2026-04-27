@@ -9,7 +9,8 @@ plugins {
 
 group = "com.yourplugin"
 
-version = "1.0.1"
+val buildNumber: String = project.findProperty("buildNumber")?.toString() ?: "1"
+version = "1.0.$buildNumber"
 
 repositories {
     mavenCentral()
@@ -154,6 +155,23 @@ tasks {
 
     named("instrumentTestCode") {
         enabled = false
+    }
+
+    // Inject the real version string into the packaged resources
+    withType<ProcessResources> {
+        filesMatching("version.properties") {
+            expand("pluginVersion" to version)
+        }
+    }
+
+    // Auto-increment buildNumber in gradle.properties after every successful plugin build
+    named("buildPlugin") {
+        doLast {
+            val propsFile = file("gradle.properties")
+            val next = buildNumber.toInt() + 1
+            propsFile.writeText(propsFile.readText().replace("buildNumber=$buildNumber", "buildNumber=$next"))
+            println("Build $version complete — next build will be 1.0.$next")
+        }
     }
 
     // IntelliJ 2026.1 registers a custom NIO FileSystemProvider that must be on

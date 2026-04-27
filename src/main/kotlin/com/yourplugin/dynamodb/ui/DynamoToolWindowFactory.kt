@@ -20,8 +20,7 @@ class DynamoToolWindowFactory : ToolWindowFactory {
         }
         toolWindow.setTitleActions(listOf(expandAction, collapseAction))
 
-        val content = ContentFactory.getInstance()
-            .createContent(mainPanel, "", false)
+        val content = ContentFactory.getInstance().createContent(mainPanel, "", false)
         toolWindow.contentManager.addContent(content)
     }
 }

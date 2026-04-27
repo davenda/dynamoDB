@@ -1,9 +1,7 @@
 package com.yourplugin.dynamodb.ui
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBSplitter
@@ -20,479 +18,847 @@ import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
+import java.time.Instant
 import javax.swing.*
+import javax.swing.border.MatteBorder
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.filechooser.FileNameExtensionFilter
+import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.DefaultTableModel
+import javax.swing.table.TableCellRenderer
 import javax.swing.table.TableRowSorter
 
 /**
- * Query Runner panel — DQL execution UI.
+ * Table browser panel — prototype-matched layout.
+ *
+ * ┌─ rowToolbar ────────────────────────────────────────┐  38px
+ * │  [|◀][◀][20 rows▾][▶][▶|] │ ↺ │ [+][-] · · Export│
+ * ├─ filterBar ─────────────────────────────────────────┤  38px
+ * │  🔍  TableName · Filter  [_____________________] × │
+ * ├─ resultsToolbar ────────────────────────────────────┤  38px
+ * │  🗃 TableName  [N rows] [●Nms] [N RCU]   · [⊟][⊞] │
+ * ├─ table ──────────────────────┬──────────────────────┤  1fr
+ * │  results                     │  inspector           │
+ * └──────────────────────────────┴──────────────────────┘
  */
 class QueryRunnerPanel(
     private val project: Project,
-    private val connectionName: String,
-    private val tableName: String,
+    val connectionName: String,
+    val tableName: String,
+    private val onSchemaLoaded: ((TableSchema) -> Unit)? = null,
+    private val onHistoryEntry: ((SidebarPanel.HistoryEntry) -> Unit)? = null,
 ) : JPanel(BorderLayout()) {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val registry get() = ApplicationManager.getApplication()
-        .getService(DynamoConnectionRegistry::class.java)
+    private val registry
+        get() = ApplicationManager.getApplication().getService(DynamoConnectionRegistry::class.java)
 
-    // ── Editor ────────────────────────────────────────────────────────────────
-    private val editor: EditorEx = run {
-        val dqlType = FileTypeManager.getInstance().getFileTypeByExtension("dql")
-        val doc = EditorFactory.getInstance().createDocument(defaultQuery())
-        (EditorFactory.getInstance().createEditor(doc, project, dqlType, false) as EditorEx).also { ed ->
-            // Strip away all overlay/gutter UI so the editor is a clean query input
-            ed.settings.apply {
-                isLineNumbersShown = false
-                isLineMarkerAreaShown = false
-                isFoldingOutlineShown = false
-                isRightMarginShown = false
-                additionalLinesCount = 0
-                additionalColumnsCount = 0
-                isCaretRowShown = false
-                isShowIntentionBulb = false
-            }
-            // Remove the header panel (breadcrumbs / notification bar) that floats over sibling components
-            ed.headerComponent = null
-            ed.permanentHeaderComponent = null
-        }
-    }
-
-    // ── Query mode toggle ─────────────────────────────────────────────────────
-    private enum class QueryMode { SQL, NATIVE }
-    private var queryMode = QueryMode.SQL
-
-    private val sqlRadio    = JRadioButton("SQL", true)
-    private val nativeRadio = JRadioButton("DynamoDB Native", false)
-
-    // ── Toolbar ───────────────────────────────────────────────────────────────
-    private val runBtn      = JButton("▶ Execute").apply { addActionListener { execute() } }
-    private val clearBtn    = JButton("✕ Clear").apply { addActionListener { clearResults() } }
-    private val rawToggle   = JCheckBox("Raw JSON").apply { addActionListener { toggleRaw() } }
-    private val statusLabel = JLabel("Ready")
-    private val contextLabel = JLabel("$connectionName · $tableName")
-
-    // ── Filter bar ────────────────────────────────────────────────────────────
-    private val filterField = JTextField(20).apply {
-        toolTipText = "Filter results…"
-        putClientProperty("JTextField.placeholderText", "Filter results…")
-    }
-    private var rowSorter: TableRowSorter<DefaultTableModel>? = null
-
-    // ── Native DynamoDB query inputs ──────────────────────────────────────────
-    private val nativeOperationCombo = JComboBox(arrayOf("Scan", "Query"))
-    private val nativeKeyCondField = JTextField().apply {
-        toolTipText = "Key Condition Expression (required for Query). e.g. cafe_id = :pk"
-        putClientProperty("JTextField.placeholderText", "cafe_id = :pk AND begins_with(sort_key, :prefix)")
-    }
-    private val nativeFilterField = JTextField().apply {
-        toolTipText = "Filter Expression (optional). e.g. city = :city"
-        putClientProperty("JTextField.placeholderText", "city = :city AND age > :minAge")
-    }
-    private val nativeAttrNamesArea = JTextArea(3, 1).apply {
-        toolTipText = "Expression Attribute Names (JSON). e.g. {\"#n\": \"name\"}"
-        lineWrap = true; wrapStyleWord = true; font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        putClientProperty("JTextField.placeholderText", "{\"#n\": \"name\"}")
-    }
-    private val nativeAttrValuesArea = JTextArea(4, 1).apply {
-        toolTipText = "Expression Attribute Values (JSON). e.g. {\":city\": \"Tampa\", \":minAge\": 25}"
-        lineWrap = true; wrapStyleWord = true; font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        putClientProperty("JTextField.placeholderText", "{\":city\": \"Tampa\", \":minAge\": 25}")
-    }
-    // Cards to switch between SQL editor and native form
-    private val inputCards = CardLayout()
-    private val inputPanel = JPanel(inputCards)
-
-    // ── Results ───────────────────────────────────────────────────────────────
+    // ── Results table ─────────────────────────────────────────────────────────
     private val tableModel = object : DefaultTableModel(0, 0) {
         override fun isCellEditable(r: Int, c: Int) = false
     }
     private val resultsTable = JBTable(tableModel).apply {
-        autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
-        rowHeight = 22
         setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
-        tableHeader.addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) {
-                    val col = columnAtPoint(e.point).takeIf { it >= 0 } ?: return
-                    autoFitColumn(col)
-                }
+        background  = DColors.bg1
+        foreground  = DColors.fg0
+        gridColor   = DColors.line
+        rowHeight   = 30
+        showHorizontalLines = true
+        showVerticalLines   = false
+        tableHeader.background = DColors.bg2
+        tableHeader.foreground = DColors.fg2
+        tableHeader.font = tableHeader.font.deriveFont(Font.PLAIN, 11.5f)
+        setDefaultRenderer(Any::class.java, SemanticCellRenderer())
+        autoResizeMode    = JTable.AUTO_RESIZE_OFF
+        intercellSpacing  = Dimension(0, 0)
+        selectionBackground = DColors.accentSoft
+        selectionForeground = DColors.fg0
+    }
+
+    // ── Session history ───────────────────────────────────────────────────────
+    data class ItemHistoryEntry(
+        val timestamp: Long = System.currentTimeMillis(),
+        val action: String,                      // "Created" | "Edited" | "Deleted"
+        val changes: List<String> = emptyList(), // ["field: old → new", …]
+    )
+    private val itemHistory = mutableMapOf<String, MutableList<ItemHistoryEntry>>()
+
+    private fun itemKey(item: Map<String, AttributeValue>): String {
+        val schema = cachedSchema ?: return item.keys.firstOrNull()?.let { item[it]?.displayValue() } ?: "?"
+        val pk = item[schema.partitionKey.name]?.displayValue() ?: "?"
+        val sk = schema.sortKey?.name?.let { item[it]?.displayValue() }
+        return if (sk != null) "$pk|$sk" else pk
+    }
+
+    private fun recordHistory(item: Map<String, AttributeValue>, action: String, changes: List<String> = emptyList()) {
+        itemHistory.getOrPut(itemKey(item)) { mutableListOf() }
+            .add(ItemHistoryEntry(action = action, changes = changes))
+    }
+
+    // ── Inspector ─────────────────────────────────────────────────────────────
+    private var inspectorVisible    = false
+    private var inspectorProportion = 0.65f   // remembered across hide/show
+    private val inspector = RowInspectorPanel(
+        onClose = { hideInspector() },
+        onEdit  = { item -> openItemEditor(item) },
+        getHistory = { item -> itemHistory[itemKey(item)] ?: emptyList() },
+    )
+    private lateinit var resultsSplit: JBSplitter
+
+    private val hiddenColumns     = mutableMapOf<String, javax.swing.table.TableColumn>()
+    private var columnPopup: JPopupMenu? = null
+    private val columnToggleBtn   = miniBtn(AllIcons.Actions.GroupByModule, "Toggle columns") {
+        val popup = columnPopup
+        if (popup != null && popup.isVisible) { popup.isVisible = false; columnPopup = null }
+        else showColumnPopup()
+    }
+
+    /** Toggle button — painted with accent fill when inspector is open. */
+    private val inspectorToggleBtn = object : JButton(AllIcons.Actions.PreviewDetails) {
+        override fun paintComponent(g: Graphics) {
+            if (inspectorVisible) {
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = DColors.accentSoft
+                val hh = 22
+                val hy = (height - hh) / 2
+                g2.fillRoundRect(0, hy, width, hh, 4, 4)
             }
-        })
-    }
-
-    private fun fitColumnsToContent() {
-        val colCount = resultsTable.columnCount
-        if (colCount == 0) return
-        val minColWidth = 80
-        for (col in 0 until colCount) {
-            var maxWidth = minColWidth
-            val headerRenderer = resultsTable.tableHeader.defaultRenderer
-            val headerComp = headerRenderer.getTableCellRendererComponent(
-                resultsTable, resultsTable.columnModel.getColumn(col).headerValue, false, false, -1, col)
-            maxWidth = maxOf(maxWidth, headerComp.preferredSize.width + 16)
-            for (row in 0 until minOf(resultsTable.rowCount, 100)) {
-                val renderer = resultsTable.getCellRenderer(row, col)
-                val comp = resultsTable.prepareRenderer(renderer, row, col)
-                maxWidth = maxOf(maxWidth, comp.preferredSize.width + 8)
-            }
-            resultsTable.columnModel.getColumn(col).preferredWidth = maxWidth
+            super.paintComponent(g)
         }
-        resultsTable.revalidate()
+    }.apply {
+        toolTipText         = "Toggle inspector"
+        isBorderPainted     = false
+        isContentAreaFilled = false
+        isFocusPainted      = false
+        preferredSize       = Dimension(22, 22)
+        addActionListener   { toggleInspector() }
     }
 
-    private fun autoFitColumn(col: Int) {
-        var maxWidth = resultsTable.tableHeader.getHeaderRect(col).width
-        val headerRenderer = resultsTable.tableHeader.defaultRenderer
-        val headerComp = headerRenderer.getTableCellRendererComponent(
-            resultsTable, resultsTable.columnModel.getColumn(col).headerValue, false, false, -1, col)
-        maxWidth = maxOf(maxWidth, headerComp.preferredSize.width + 16)
-        for (row in 0 until minOf(resultsTable.rowCount, 200)) {
-            val renderer = resultsTable.getCellRenderer(row, col)
-            val comp = resultsTable.prepareRenderer(renderer, row, col)
-            maxWidth = maxOf(maxWidth, comp.preferredSize.width + 8)
-        }
-        resultsTable.columnModel.getColumn(col).preferredWidth = maxWidth
+    // ── Filter bar input ──────────────────────────────────────────────────────
+    private val filterInput = JTextField().apply {
+        putClientProperty("JTextField.placeholderText",
+            "<Filter Criteria>   e.g.  rating > 4.0 AND city = 'Tampa'")
+        font       = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        background = DColors.bg1
+        foreground = DColors.fg0
+        border     = BorderFactory.createEmptyBorder(0, 4, 0, 4)
+        isOpaque   = false
     }
+    private var rowSorter: TableRowSorter<DefaultTableModel>? = null
 
-    private val rawArea = JTextArea().apply {
-        isEditable = false
-        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-    }
-    private val resultCards = CardLayout()
-    private val resultPanel = JPanel(resultCards).apply {
-        add(JBScrollPane(resultsTable), "table")
-        add(JBScrollPane(rawArea), "raw")
-    }
-
-    // ── Item detail panel ─────────────────────────────────────────────────────
-    private val detailPanel = ItemDetailPanel()
+    // ── Stat pills ────────────────────────────────────────────────────────────
+    private val rowCountPill = statPill("—")
+    private val timingPill   = statPill("—", DColors.good)
+    private val rcuPill      = statPill("—")
 
     // ── Pagination state ──────────────────────────────────────────────────────
     private var cachedSchema: TableSchema? = null
-    private var rawItems = mutableListOf<Map<String, AttributeValue>>()
-    // pageKeys[i] holds the exclusiveStartKey for page (i+1); pageKeys[0] = null means page 1
-    private val pageKeys = mutableListOf<Map<String, AttributeValue>?>(null)
-    // Cumulative item count BEFORE each page: pageStartOffset[0]=0, pageStartOffset[1]=items on page1, etc.
-    private val pageStartOffset = mutableListOf(0)
-    private var currentPage = 1
-    // The LIMIT extracted from the current query (null = no limit)
-    private var queryTotalLimit: Int? = null
+    private var rawItems     = mutableListOf<Map<String, AttributeValue>>()
+    private val pageKeys     = mutableListOf<Map<String, AttributeValue>?>(null)
+    private var currentPage  = 1
+    private var currentPageSize = 20
+    var isRunning = false
+        private set
 
-    // ── Pagination controls (wired up in buildPaginationBar) ──────────────────
-    private val prevPageBtn = JButton("◀ Prev").apply {
-        isEnabled = false
-        addActionListener { goToPage(currentPage - 1) }
-    }
-    private val nextPageBtn = JButton("Next ▶").apply {
-        isEnabled = false
-        addActionListener { goToPage(currentPage + 1) }
-    }
-    private val pageLabel = JLabel("Page 1")
+    // ── Row-toolbar navigation buttons ────────────────────────────────────────
+    private val firstBtn    = ijBtn(AllIcons.Actions.Play_first,    "First page")   { goToFirstPage() }
+    private val prevBtn     = ijBtn(AllIcons.Actions.Back,          "Prev page")    { goToPage(currentPage - 1) }
+    private val nextBtn     = ijBtn(AllIcons.Actions.Forward,       "Next page")    { goToPage(currentPage + 1) }
+    private val lastBtn     = ijBtn(AllIcons.Actions.Play_last,     "Last page")    { goToNextAvailable() }
+    private val refreshBtn  = ijBtn(AllIcons.Actions.Refresh,       "Reload")       { execute() }
+    private val addRowBtn   = ijBtn(AllIcons.General.Add,           "Add row")      { addRow() }
+    private val deleteRowBtn= ijBtn(AllIcons.General.Remove,        "Delete selected rows") { batchDelete() }
+    private val exportBtn   = ijBtn(AllIcons.ToolbarDecorator.Export,"Export results") { showExportDialog() }
+    private val moreBtn     = ijBtn(AllIcons.Actions.More,           "More options")   { showMoreMenu() }
 
-    // ── Per-page size selector ─────────────────────────────────────────────────
-    private val pageSizeOptions = arrayOf(10, 20, 50, 100, 500)
-    private val pageSizeCombo = JComboBox(pageSizeOptions).apply {
-        selectedItem = 20          // default: 20 rows per page
-        maximumSize = preferredSize
-        toolTipText = "Rows per page (applies when no LIMIT is written in the query)"
+    private val pageSizeBtn = object : JButton("$currentPageSize rows  ▾") {
+        override fun paintComponent(g: Graphics) {
+            val g2 = g as Graphics2D
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = background; g2.fillRoundRect(0, 0, width, height, 4, 4)
+            super.paintComponent(g)
+        }
+    }.apply {
+        font               = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        foreground         = DColors.fg1
+        background         = DColors.bg3
+        isBorderPainted    = false
+        isContentAreaFilled = false
+        isFocusPainted     = false
+        border             = BorderFactory.createEmptyBorder(0, 8, 0, 8)
+        preferredSize      = Dimension(90, 26)
+        isOpaque           = false
         addActionListener {
-            // Re-run from page 1 whenever the page size changes
-            execute()
+            val menu = JPopupMenu()
+            for (size in listOf(10, 20, 50, 100, 200)) {
+                menu.add(JMenuItem("$size rows").also { item ->
+                    item.addActionListener {
+                        currentPageSize = size
+                        text = "$size rows  ▾"
+                        execute()
+                    }
+                })
+            }
+            menu.show(this, 0, height)
         }
     }
 
-    init {
-        add(buildToolbar(), BorderLayout.NORTH)
-        add(buildMainArea(), BorderLayout.CENTER)
+    // Must be before init{} — used by buildFilterBar() which is called from init
+    private val filterClearBtn = object : JButton("×") {
+        init {
+            font               = font.deriveFont(Font.PLAIN, 13f)
+            foreground         = DColors.fg3
+            isBorderPainted    = false
+            isContentAreaFilled = false
+            isFocusPainted     = false
+            preferredSize      = Dimension(22, 22)
+            maximumSize        = Dimension(22, 22)
+            minimumSize        = Dimension(22, 22)
+            isVisible          = false
+            addActionListener  { filterInput.text = ""; isVisible = false }
+        }
+    }
 
-        // Row click → item detail; double-click → editor
+    // ── Init ──────────────────────────────────────────────────────────────────
+    init {
+        background = DColors.bg1
+
+        // Row click → inspector
         resultsTable.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                val row = resultsTable.rowAtPoint(e.point)
-                if (row < 0) return
-                val modelRow = resultsTable.convertRowIndexToModel(row)
-                val item = rawItems.getOrNull(modelRow) ?: return
-                if (e.clickCount == 1) detailPanel.showItem(item)
+                val row = resultsTable.rowAtPoint(e.point).takeIf { it >= 0 } ?: return
+                val item = rawItems.getOrNull(resultsTable.convertRowIndexToModel(row)) ?: return
+                if (e.clickCount == 1) {
+                    inspector.showItem(item, cachedSchema)
+                    if (!inspectorVisible) showInspector()
+                }
                 if (e.clickCount == 2) openItemEditor(item)
             }
         })
-
-        // Right-click context menu
         resultsTable.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent)  { if (e.isPopupTrigger) showContextMenu(e) }
             override fun mouseReleased(e: MouseEvent) { if (e.isPopupTrigger) showContextMenu(e) }
         })
 
-        // Filter bar live filtering
-        filterField.document.addDocumentListener(object : DocumentListener {
-            override fun insertUpdate(e: DocumentEvent)  { applyFilter() }
-            override fun removeUpdate(e: DocumentEvent)  { applyFilter() }
-            override fun changedUpdate(e: DocumentEvent) { applyFilter() }
+        // Filter bar live filter
+        filterInput.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent)  = applyFilter()
+            override fun removeUpdate(e: DocumentEvent)  = applyFilter()
+            override fun changedUpdate(e: DocumentEvent) = applyFilter()
         })
 
+        // Assemble layout
+        val topSection = JPanel().apply {
+            layout     = BoxLayout(this, BoxLayout.PAGE_AXIS)
+            background = DColors.bg1
+            add(buildRowToolbar())
+            add(buildFilterBar())
+        }
+        val resultsSection = JPanel(BorderLayout()).apply {
+            background = DColors.bg1
+            add(buildResultsToolbar(), BorderLayout.NORTH)
+            add(buildResultsArea(),    BorderLayout.CENTER)
+        }
+        val main = JPanel(BorderLayout()).apply {
+            background = DColors.bg1
+            add(topSection,     BorderLayout.NORTH)
+            add(resultsSection, BorderLayout.CENTER)
+        }
+        add(main, BorderLayout.CENTER)
+
+        // Disable nav buttons initially
+        updateNavButtons(hasNext = false)
 
         // Pre-load schema
         scope.launch {
             cachedSchema = runCatching {
                 TableSchemaService.describe(registry.clientFor(connectionName), tableName)
             }.getOrNull()
-        }
-    }
-
-    // ── Layout ────────────────────────────────────────────────────────────────
-
-    private fun toolbarSolidDivider(): JComponent {
-        val sep = JSeparator(SwingConstants.VERTICAL)
-        sep.preferredSize = Dimension(9, 24)
-        sep.minimumSize   = Dimension(9, 24)
-        sep.maximumSize   = Dimension(9, 24)
-        return sep
-    }
-
-    private fun buildToolbar(): JComponent {
-        ButtonGroup().also { it.add(sqlRadio); it.add(nativeRadio) }
-        sqlRadio.addActionListener    { switchMode(QueryMode.SQL) }
-        nativeRadio.addActionListener { switchMode(QueryMode.NATIVE) }
-
-        return JToolBar().apply {
-            isFloatable = false
-            border = BorderFactory.createEmptyBorder(4, 6, 4, 6)
-            add(runBtn)
-            add(toolbarSolidDivider())
-            add(clearBtn)
-            add(rawToggle)
-            add(toolbarSolidDivider())
-            add(JLabel("Mode:"))
-            add(Box.createHorizontalStrut(4))
-            add(sqlRadio)
-            add(nativeRadio)
-            add(toolbarSolidDivider())
-            add(JLabel("Filter:"))
-            add(Box.createHorizontalStrut(4))
-            add(filterField)
-            add(toolbarSolidDivider())
-            add(JButton("Export…").apply { addActionListener { showExportDialog() } })
-            add(JButton("Delete Selected").apply {
-                toolTipText = "Delete selected rows from DynamoDB"
-                addActionListener { batchDelete() }
-            })
-            add(Box.createHorizontalGlue())
-            add(contextLabel.apply {
-                border = BorderFactory.createEmptyBorder(0, 4, 0, 4)
-                foreground = UIManager.getColor("Label.disabledForeground") ?: foreground
-            })
-            add(statusLabel.apply {
-                border = BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor") ?: Color(130, 130, 130), 1),
-                    BorderFactory.createEmptyBorder(2, 8, 2, 8)
-                )
-            })
-        }
-    }
-
-    private fun buildNativeForm(): JComponent {
-        // Operation selector row
-        val opRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
-            add(JLabel("Operation:"))
-            add(nativeOperationCombo)
-            nativeOperationCombo.addActionListener {
-                val isQuery = nativeOperationCombo.selectedItem == "Query"
-                nativeKeyCondField.isEnabled = isQuery
+            withContext(Dispatchers.Swing) {
+                cachedSchema?.let { schema ->
+                    inspector.setSchema(schema)
+                    onSchemaLoaded?.invoke(schema)
+                }
             }
         }
-
-        val form = JPanel(GridBagLayout())
-        val gbc = GridBagConstraints().apply {
-            insets = Insets(3, 4, 3, 4)
-            fill = GridBagConstraints.HORIZONTAL
-            anchor = GridBagConstraints.NORTHWEST
-        }
-
-        fun addRow(label: String, comp: JComponent, multiLine: Boolean = false, row: Int) {
-            gbc.gridy = row
-            gbc.gridx = 0; gbc.weightx = 0.0; gbc.weighty = 0.0
-            form.add(JLabel(label), gbc)
-            gbc.gridx = 1; gbc.weightx = 1.0
-            if (multiLine) { gbc.weighty = 0.5; gbc.fill = GridBagConstraints.BOTH }
-            form.add(if (multiLine) JBScrollPane(comp) else comp, gbc)
-            gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weighty = 0.0
-        }
-
-        addRow("Operation:", opRow, row = 0)
-        addRow("Key Condition:", nativeKeyCondField, row = 1)
-        addRow("Filter:", nativeFilterField, row = 2)
-        addRow("Attr Names:", nativeAttrNamesArea, multiLine = true, row = 3)
-        addRow("Attr Values:", nativeAttrValuesArea, multiLine = true, row = 4)
-
-        // hint label
-        gbc.gridy = 5; gbc.gridx = 1; gbc.weightx = 1.0; gbc.weighty = 0.0
-        val hint = JLabel("<html><small>Attr Names: {\"#n\": \"name\"} &nbsp;|&nbsp; " +
-                "Attr Values: {\":city\": \"Tampa\", \":age\": 25, \":flag\": true}</small></html>").apply {
-            foreground = UIManager.getColor("Label.disabledForeground") ?: foreground
-        }
-        form.add(hint, gbc)
-
-        return JBScrollPane(form)
     }
 
-    private fun buildMainArea(): JComponent {
-        // Build inputPanel cards
-        inputPanel.add(editor.component, "sql")
-        inputPanel.add(buildNativeForm(), "native")
-        inputCards.show(inputPanel, "sql")
+    // ── Row toolbar ───────────────────────────────────────────────────────────
 
-        val resultsPanelWithFooter = JPanel(BorderLayout()).apply {
-            add(resultPanel, BorderLayout.CENTER)
-            add(buildPaginationBar(), BorderLayout.SOUTH)
-        }
-        val rightSplit = JBSplitter(true, 0.65f).apply {
-            firstComponent  = resultsPanelWithFooter
-            secondComponent = detailPanel
-        }
-        return JBSplitter(true, 0.35f).apply {
-            firstComponent  = inputPanel
-            secondComponent = rightSplit
+    private fun buildRowToolbar(): JComponent = JPanel().apply {
+        layout        = BoxLayout(this, BoxLayout.LINE_AXIS)
+        background    = DColors.bg2
+        border        = MatteBorder(0, 0, 1, 0, DColors.line)
+        preferredSize = Dimension(Int.MAX_VALUE, 38)
+        maximumSize   = Dimension(Int.MAX_VALUE, 38)
+        minimumSize   = Dimension(0, 38)
+
+        fun gap(n: Int) = Box.createHorizontalStrut(n)
+
+        add(gap(8))
+        add(btnGroup(firstBtn, prevBtn, pageSizeBtn, nextBtn, lastBtn)); add(gap(6))
+        add(btnGroup(refreshBtn));                                        add(gap(6))
+        add(btnGroup(addRowBtn, deleteRowBtn))
+        add(Box.createHorizontalGlue())
+        add(btnGroup(exportBtn));  add(gap(4))
+        add(moreBtn);              add(gap(6))
+    }
+
+    /** Wraps buttons in a rounded-rect group pill (prototype toolbar style). */
+    private fun btnGroup(vararg btns: JButton): JComponent {
+        return object : JPanel() {
+            override fun paintComponent(g: Graphics) {
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = DColors.bg3
+                g2.fillRoundRect(0, (height - 26) / 2, width, 26, 6, 6)
+            }
+        }.apply {
+            layout   = BoxLayout(this, BoxLayout.LINE_AXIS)
+            isOpaque = false
+            border   = BorderFactory.createEmptyBorder(0, 2, 0, 2)
+            btns.forEach { btn ->
+                btn.isBorderPainted     = false
+                btn.isContentAreaFilled = false
+                add(btn)
+            }
         }
     }
 
-    private fun switchMode(mode: QueryMode) {
-        queryMode = mode
-        inputCards.show(inputPanel, if (mode == QueryMode.SQL) "sql" else "native")
-        // Update key condition field state
-        if (mode == QueryMode.NATIVE) {
-            val isQuery = nativeOperationCombo.selectedItem == "Query"
-            nativeKeyCondField.isEnabled = isQuery
+    /** "···" overflow popup — copy JSON, export. */
+    private fun showMoreMenu() {
+        val menu = JPopupMenu()
+        menu.add(JMenuItem("Copy row as JSON").also { mi ->
+            mi.addActionListener {
+                val r = resultsTable.selectedRow.takeIf { it >= 0 } ?: return@addActionListener
+                val item = rawItems.getOrNull(resultsTable.convertRowIndexToModel(r)) ?: return@addActionListener
+                val json = buildString {
+                    append("{\n")
+                    item.entries.forEachIndexed { i, (k, v) ->
+                        if (i > 0) append(",\n")
+                        append("  \"$k\": \"${v.displayValue().replace("\"", "\\\"")}\"")
+                    }
+                    append("\n}")
+                }
+                Toolkit.getDefaultToolkit().systemClipboard
+                    .setContents(java.awt.datatransfer.StringSelection(json), null)
+            }
+        })
+        menu.addSeparator()
+        menu.add(JMenuItem("Export as CSV / JSON…").also { mi ->
+            mi.addActionListener { showExportDialog() }
+        })
+        menu.show(moreBtn, 0, moreBtn.height)
+    }
+
+    // ── Column visibility ─────────────────────────────────────────────────────
+
+    private fun showColumnPopup() {
+        if (tableModel.columnCount == 0) return
+        val menu = JPopupMenu()
+        val allNames = (0 until tableModel.columnCount)
+            .map { tableModel.getColumnName(it) }
+            .filter { it != "#" }
+
+        // "Show All" as a regular JMenuItem — clicking it dismissing the popup is acceptable
+        menu.add(JMenuItem("Show All").also { it.addActionListener { allNames.forEach { n -> showColumn(n) } } })
+        menu.addSeparator()
+
+        // Each column as a raw JPanel+JCheckBox — NOT a JMenuItem, so Swing won't
+        // auto-dismiss the popup when the checkbox is toggled
+        allNames.forEach { name ->
+            val cb = JCheckBox(name, name !in hiddenColumns).apply {
+                isOpaque = false
+                font = font.deriveFont(Font.PLAIN, 12f)
+                addActionListener { if (isSelected) showColumn(name) else hideColumn(name) }
+            }
+            val row = JPanel(FlowLayout(FlowLayout.LEFT, 8, 4)).apply {
+                isOpaque = false
+                add(cb)
+                addMouseListener(object : MouseAdapter() {
+                    override fun mouseClicked(e: MouseEvent) { cb.doClick() }
+                })
+            }
+            menu.add(row)
+        }
+
+        menu.addPopupMenuListener(object : javax.swing.event.PopupMenuListener {
+            override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent) { columnPopup = null }
+            override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent) { columnPopup = null }
+            override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent) {}
+        })
+        columnPopup = menu
+        menu.show(columnToggleBtn, 0, columnToggleBtn.height)
+    }
+
+    private fun hideColumn(name: String) {
+        runCatching {
+            val col = resultsTable.columnModel.getColumn(resultsTable.columnModel.getColumnIndex(name))
+            hiddenColumns[name] = col
+            resultsTable.columnModel.removeColumn(col)
         }
     }
 
-    private fun buildPaginationBar() = JPanel(FlowLayout(FlowLayout.LEFT, 6, 4)).apply {
-        add(prevPageBtn)
-        add(pageLabel)
-        add(nextPageBtn)
-        add(Box.createHorizontalStrut(16))
-        add(JLabel("Rows per page:"))
-        add(pageSizeCombo)
+    private fun showColumn(name: String) {
+        val col = hiddenColumns.remove(name) ?: return
+        resultsTable.columnModel.addColumn(col)
+        // Move to model-order position among visible columns
+        val modelIdx = (0 until tableModel.columnCount).indexOfFirst { tableModel.getColumnName(it) == name }
+        if (modelIdx >= 0) {
+            val targetViewIdx = (0 until modelIdx)
+                .map { tableModel.getColumnName(it) }
+                .count { it !in hiddenColumns }
+            val lastIdx = resultsTable.columnModel.columnCount - 1
+            if (targetViewIdx < lastIdx) resultsTable.columnModel.moveColumn(lastIdx, targetViewIdx)
+        }
     }
 
+    // ── Filter bar ────────────────────────────────────────────────────────────
+
+    private fun buildFilterBar(): JComponent = JPanel().apply {
+        layout        = BoxLayout(this, BoxLayout.LINE_AXIS)
+        background    = DColors.bg1
+        border        = BorderFactory.createCompoundBorder(
+            MatteBorder(0, 0, 1, 0, DColors.line),
+            BorderFactory.createEmptyBorder(0, 10, 0, 8))
+        preferredSize = Dimension(Int.MAX_VALUE, 38)
+        maximumSize   = Dimension(Int.MAX_VALUE, 38)
+        minimumSize   = Dimension(0, 38)
+
+        // Show/hide clear button as user types
+        filterInput.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent)  { filterClearBtn.isVisible = filterInput.text.isNotEmpty() }
+            override fun removeUpdate(e: DocumentEvent)  { filterClearBtn.isVisible = filterInput.text.isNotEmpty() }
+            override fun changedUpdate(e: DocumentEvent) {}
+        })
+
+        filterInput.alignmentY     = Component.CENTER_ALIGNMENT
+        filterClearBtn.alignmentY  = Component.CENTER_ALIGNMENT
+
+        add(JLabel(AllIcons.Actions.Search).apply {
+            foreground = DColors.accent; alignmentY = Component.CENTER_ALIGNMENT })
+        add(Box.createHorizontalStrut(6))
+        add(JLabel(tableName).apply {
+            font = Font(Font.MONOSPACED, Font.PLAIN, 11); foreground = DColors.fg2
+            alignmentY = Component.CENTER_ALIGNMENT })
+        add(JLabel("  ·  Filter").apply {
+            font = font.deriveFont(Font.PLAIN, 11.5f); foreground = DColors.fg3
+            alignmentY = Component.CENTER_ALIGNMENT })
+        add(Box.createHorizontalStrut(8))
+        add(filterInput)
+        add(Box.createHorizontalStrut(4))
+        add(filterClearBtn)
+        add(Box.createHorizontalStrut(6))
+        add(buildApplyBadge())
+        add(Box.createHorizontalStrut(4))
+    }
+
+    /** "⌘↵ apply" keyboard-badge hint shown at the right of the filter bar. */
+    private fun buildApplyBadge(): JComponent = JPanel().apply {
+        layout   = BoxLayout(this, BoxLayout.LINE_AXIS)
+        isOpaque = false
+        alignmentY = Component.CENTER_ALIGNMENT
+
+        add(object : JLabel("⌘↵") {
+            override fun paintComponent(g: Graphics) {
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = DColors.bg3; g2.fillRoundRect(0, 0, width, height, 4, 4)
+                super.paintComponent(g)
+            }
+        }.apply {
+            font = font.deriveFont(Font.PLAIN, 10f); foreground = DColors.fg2
+            border = BorderFactory.createEmptyBorder(1, 5, 1, 5); isOpaque = false
+            alignmentY = Component.CENTER_ALIGNMENT
+        })
+        add(JLabel(" apply").apply {
+            font = font.deriveFont(Font.PLAIN, 11f); foreground = DColors.fg3
+            alignmentY = Component.CENTER_ALIGNMENT
+        })
+    }
+
+    // ── Results toolbar ───────────────────────────────────────────────────────
+
+    private fun buildResultsToolbar(): JComponent = JPanel().apply {
+        layout        = BoxLayout(this, BoxLayout.LINE_AXIS)
+        background    = DColors.bg1
+        border        = BorderFactory.createCompoundBorder(
+            MatteBorder(0, 0, 1, 0, DColors.line),
+            BorderFactory.createEmptyBorder(0, 10, 0, 8))
+        preferredSize = Dimension(Int.MAX_VALUE, 38)
+        maximumSize   = Dimension(Int.MAX_VALUE, 38)
+        minimumSize   = Dimension(0, 38)
+
+        fun cv(c: JComponent) = c.apply { alignmentY = Component.CENTER_ALIGNMENT }
+
+        add(cv(JLabel(AllIcons.Nodes.DataTables).apply { foreground = DColors.accent }))
+        add(Box.createHorizontalStrut(8))
+        add(cv(JLabel(tableName).apply { foreground = DColors.fg0; font = font.deriveFont(Font.BOLD, 13f) }))
+        add(Box.createHorizontalStrut(8))
+        add(cv(rowCountPill))
+        add(Box.createHorizontalStrut(6))
+        add(cv(timingPill))
+        add(Box.createHorizontalStrut(6))
+        add(cv(rcuPill))
+        add(Box.createHorizontalGlue())
+        add(cv(btnGroup(columnToggleBtn, inspectorToggleBtn)))
+        add(Box.createHorizontalStrut(4))
+    }
+
+    // ── Results area (table + inspector) ─────────────────────────────────────
+
+    private fun buildResultsArea(): JComponent {
+        val tableScroll = JBScrollPane(resultsTable).apply {
+            border = null; background = DColors.bg1; viewport.background = DColors.bg1
+        }
+        resultsSplit = JBSplitter(false, inspectorProportion).apply {
+            firstComponent  = tableScroll
+            secondComponent = null          // hidden by default; dividerWidth stays at default
+        }
+        return resultsSplit
+    }
+
+    private fun showInspector() {
+        inspectorVisible             = true
+        resultsSplit.secondComponent = inspector
+        resultsSplit.proportion      = inspectorProportion
+        resultsSplit.revalidate()
+        inspectorToggleBtn.repaint()
+    }
+
+    private fun hideInspector() {
+        if (::resultsSplit.isInitialized) {
+            inspectorProportion = resultsSplit.proportion
+        }
+        inspectorVisible             = false
+        if (::resultsSplit.isInitialized) {
+            resultsSplit.secondComponent = null
+            resultsSplit.proportion      = 1.0f
+            resultsSplit.revalidate()
+        }
+        inspectorToggleBtn.repaint()
+    }
+
+    private fun toggleInspector() = if (inspectorVisible) hideInspector() else showInspector()
 
     // ── Execution ─────────────────────────────────────────────────────────────
 
-    /** Called by the Execute button — always resets pagination back to page 1. */
-    private fun execute() {
-        pageKeys.clear()
-        pageKeys.add(null)   // page 1 has no start key
-        pageStartOffset.clear()
-        pageStartOffset.add(0)
+    fun execute() {
+        pageKeys.clear(); pageKeys.add(null)
         currentPage = 1
-        if (queryMode == QueryMode.SQL) {
-            val dql = ApplicationManager.getApplication().runReadAction<String> { editor.document.text }.trim()
-            queryTotalLimit = extractTotalLimit(dql)
-        } else {
-            queryTotalLimit = null
-        }
         loadCurrentPage()
     }
 
-    /** Navigate to a specific page (1-based). */
     private fun goToPage(page: Int) {
         if (page < 1) return
         currentPage = page
         loadCurrentPage()
     }
 
+    private fun goToFirstPage() = goToPage(1)
+
+    private fun goToNextAvailable() {
+        if (nextBtn.isEnabled) goToPage(currentPage + 1)
+    }
+
     private fun loadCurrentPage() {
-        val startKey = pageKeys.getOrNull(currentPage - 1) ?: run {
-            // Requested page key not cached yet — this shouldn't happen in normal flow
-            if (currentPage != 1) return
-            null
-        }
-
-        val dql = ApplicationManager.getApplication().runReadAction<String> { editor.document.text }.trim()
-        if (queryMode == QueryMode.SQL && dql.isBlank()) { statusLabel.text = "Query is empty"; return }
-
-        runBtn.isEnabled = false
-        prevPageBtn.isEnabled = false
-        nextPageBtn.isEnabled = false
-        statusLabel.text = "Executing…"
+        val startKey = pageKeys.getOrNull(currentPage - 1) ?: if (currentPage != 1) return else null
+        isRunning = true
+        updateNavButtons(hasNext = false)
 
         scope.launch {
-            try {
-                val result: ExecutionResult = runCatching {
-                    val client = registry.clientFor(connectionName)
-                    if (queryMode == QueryMode.NATIVE) {
-                        executeNativeQuery(client, startKey)
-                    } else if (dql.trimStart().uppercase().startsWith("UPDATE")) {
-                        executeUpdate(dql)
-                    } else {
-                        executeQuery(client, dql, cachedSchema, startKey)
+            val t0 = System.currentTimeMillis()
+            val result = runCatching {
+                val client = registry.clientFor(connectionName)
+                val resp = client.scan(
+                    ScanRequest.builder()
+                        .tableName(tableName)
+                        .limit(currentPageSize)
+                        .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
+                        .apply { startKey?.let { exclusiveStartKey(it) } }
+                        .build()
+                ).await()
+                ExecutionResult.QueryResult(
+                    resp.items(),
+                    resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
+                    resp.consumedCapacity()?.capacityUnits()
+                )
+            }.getOrElse { ex -> ExecutionResult.Error(ex.message ?: "Unknown error") }
+            val ms = System.currentTimeMillis() - t0
+
+            withContext(Dispatchers.Swing) {
+                isRunning = false
+                when (result) {
+                    is ExecutionResult.QueryResult -> {
+                        rawItems.clear(); tableModel.rowCount = 0; tableModel.columnCount = 0
+                        rawItems += result.items
+                        renderTableResults(result.items)
+
+                        val hasNext = result.nextKey != null && result.items.isNotEmpty()
+                        if (hasNext && pageKeys.size == currentPage) pageKeys.add(result.nextKey)
+                        updateNavButtons(hasNext)
+
+                        rowCountPill.text = " ${result.items.size} rows "
+                        timingPill.text   = " ● ${ms}ms "
+                        rcuPill.text      = result.consumedRcu?.let { " ${"%.1f".format(it)} RCU " } ?: ""
+
+                        onHistoryEntry?.invoke(SidebarPanel.HistoryEntry("Scan", tableName, ms))
                     }
-                }.getOrElse { ex -> ExecutionResult.Error(ex.message ?: "Unknown error") }
-
-                withContext(Dispatchers.Swing) {
-                    when (result) {
-                        is ExecutionResult.QueryResult -> {
-                            val limit = queryTotalLimit
-                            val served = pageStartOffset.getOrElse(currentPage - 1) { pageStartOffset.last() }
-                            val remaining = if (limit != null) limit - served else Int.MAX_VALUE
-
-                            // Cap items to whatever is remaining of the total limit
-                            val items = if (remaining <= 0) emptyList()
-                                        else if (result.items.size > remaining) result.items.take(remaining)
-                                        else result.items
-
-                            // Record cumulative offset for the NEXT page
-                            val nextOffset = served + items.size
-                            if (pageStartOffset.size == currentPage) {
-                                pageStartOffset.add(nextOffset)
-                            }
-
-                            // Replace table contents with this page's items
-                            rawItems.clear()
-                            tableModel.rowCount = 0
-                            tableModel.columnCount = 0
-                            detailPanel.clear()
-                            rawItems += items
-                            renderTableResults(items)
-
-                            // Next page is available only if there's more data AND we haven't hit the total limit
-                            val limitExhausted = limit != null && nextOffset >= limit
-                            val hasNextKey = result.nextKey != null && items.isNotEmpty()
-
-                            // Cache next page key
-                            if (!limitExhausted && hasNextKey && pageKeys.size == currentPage) {
-                                pageKeys.add(result.nextKey)
-                            }
-
-                            prevPageBtn.isEnabled = currentPage > 1
-                            nextPageBtn.isEnabled = !limitExhausted && hasNextKey
-                            pageLabel.text = "Page $currentPage"
-                            statusLabel.text = "✓ ${items.size} items  ·  page $currentPage" +
-                                if (result.consumedRcu != null) "  ·  ${result.consumedRcu} RCU" else ""
-                        }
-                        is ExecutionResult.UpdateResult -> {
-                            statusLabel.text = "✓ Update applied  ·  ${result.consumedWcu} WCU"
-                            rawArea.text = "Update successful.\nConsumed WCU: ${result.consumedWcu}"
-                            resultCards.show(resultPanel, "raw")
-                        }
-                        is ExecutionResult.Error -> {
-                            statusLabel.text = "✗ Error"
-                            showError(result.message)
-                        }
-                    }
-                    if (rawToggle.isSelected) renderRaw()
-                }
-            } finally {
-                // Always re-enable the Execute button — even on cancellation or exception.
-                withContext(NonCancellable + Dispatchers.Swing) {
-                    runBtn.isEnabled = true
+                    is ExecutionResult.Error -> showError(result.message)
                 }
             }
         }
+    }
+
+    private fun updateNavButtons(hasNext: Boolean) {
+        firstBtn.isEnabled    = currentPage > 1
+        prevBtn.isEnabled     = currentPage > 1
+        nextBtn.isEnabled     = hasNext
+        lastBtn.isEnabled     = false   // indeterminate without full scan
+        deleteRowBtn.isEnabled = rawItems.isNotEmpty()
+    }
+
+    // ── Cell rendering ────────────────────────────────────────────────────────
+
+    private inner class SemanticCellRenderer : TableCellRenderer {
+        private val defaultRenderer = DefaultTableCellRenderer()
+
+        override fun getTableCellRendererComponent(
+            table: JTable, value: Any?, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int,
+        ): Component {
+            val raw     = rawItems.getOrNull(table.convertRowIndexToModel(row))
+            val colName = if (column < table.columnCount) table.getColumnName(column) else null
+            val av      = if (raw != null && colName != null) raw[colName] else null
+
+            val bg = when {
+                isSelected   -> DColors.accentSoft
+                row % 2 == 1 -> DColors.bg2
+                else         -> DColors.bg1
+            }
+
+            // Row-number column — centered, dim, smaller monospaced font
+            if (column == 0) {
+                return (defaultRenderer.getTableCellRendererComponent(
+                    table, value, false, false, row, column) as JLabel).apply {
+                    background = bg; foreground = DColors.fg3; isOpaque = true
+                    font = Font(Font.MONOSPACED, Font.PLAIN, 10)
+                    horizontalAlignment = SwingConstants.CENTER
+                    border = BorderFactory.createEmptyBorder(0, 2, 0, 2)
+                }
+            }
+
+            return when {
+                av == null -> defaultCell(value?.toString() ?: "", bg, DColors.fg3)
+
+                av.bool() != null -> boolPillCell(av.bool()!!, bg, isSelected)
+
+                colName != null && colName == cachedSchema?.partitionKey?.name ->
+                    defaultCell(av.displayValue(), bg, DColors.accent).also {
+                        (it as? JLabel)?.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+                    }
+
+                av.n() != null -> defaultCell(av.n()!!, bg, DColors.synNum).also {
+                    (it as? JLabel)?.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+                }
+
+                av.s() != null && av.s()!!.matches(Regex("""\d{4}-\d{2}-\d{2}T.*""")) -> {
+                    val rel = relativeTime(av.s()!!)
+                    defaultCell("$rel  ${av.s()!!.take(10)}", bg, DColors.fg2).also {
+                        (it as? JLabel)?.font = it.font.deriveFont(11.5f)
+                    }
+                }
+
+                av.m().isNotEmpty() -> defaultCell("{Map: ${av.m().size}}", bg, DColors.fg3).also {
+                    (it as? JLabel)?.font = it.font.deriveFont(Font.ITALIC, 11.5f)
+                }
+                av.l().isNotEmpty()  -> defaultCell("[List: ${av.l().size}]", bg, DColors.fg3).also {
+                    (it as? JLabel)?.font = it.font.deriveFont(Font.ITALIC, 11.5f)
+                }
+
+                else -> defaultCell(av.displayValue(), bg, DColors.fg0)
+            }
+        }
+
+        private fun defaultCell(text: String, bg: Color, fg: Color): Component {
+            val lbl = defaultRenderer.getTableCellRendererComponent(
+                resultsTable, text, false, false, 0, 0) as JLabel
+            lbl.background          = bg
+            lbl.foreground          = fg
+            lbl.isOpaque            = true
+            lbl.font                = lbl.font.deriveFont(Font.PLAIN, 12f)
+            lbl.horizontalAlignment = SwingConstants.LEFT
+            lbl.border              = BorderFactory.createEmptyBorder(0, 8, 0, 8)
+            return lbl
+        }
+
+        private fun boolPillCell(v: Boolean, bg: Color, selected: Boolean): Component {
+            val cellBg = if (selected) DColors.accentSoft else bg
+            val pillBg = if (v) DColors.goodBg else DColors.badBg
+            val pillFg = if (v) DColors.good   else DColors.bad
+            val dotClr = if (v) DColors.good   else DColors.bad
+            val label  = if (v) "true" else "false"
+
+            return object : JPanel() {
+                private val pillFont = font.deriveFont(Font.PLAIN, 11f).deriveFont(
+                    mapOf(java.awt.font.TextAttribute.TRACKING to 0.08f)
+                )
+
+                override fun paintComponent(g: Graphics) {
+                    val g2 = g as Graphics2D
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON)
+                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB)
+
+                    // Use component.background — JBTable sets this via prepareRenderer
+                    // so hover / selection / alternating rows all match other columns exactly
+                    g2.color = background
+                    g2.fillRect(0, 0, width, height)
+
+                    val f    = pillFont
+                    val fm   = g2.getFontMetrics(f)
+                    val dotD = 7; val padL = 8; val dotGap = 5; val padR = 10
+                    val pillH = 20; val pillX = 6
+                    val pillW = padL + dotD + dotGap + fm.stringWidth("false") + padR
+                    val pillY = (height - pillH) / 2
+
+                    g2.color = pillBg
+                    g2.fillRoundRect(pillX, pillY, pillW, pillH, 16, 16)
+
+                    g2.color = dotClr
+                    g2.fillOval(pillX + padL, pillY + (pillH - dotD) / 2, dotD, dotD)
+
+                    g2.font  = f
+                    g2.color = pillFg
+                    val textX = pillX + padL + dotD + dotGap
+                    val textY = (height + fm.ascent - fm.descent) / 2
+                    g2.drawString(label, textX, textY)
+                }
+            }.apply {
+                isOpaque = true
+                background = cellBg   // initial value; JBTable overrides this on each paint
+            }
+        }
+    }
+
+    private fun relativeTime(iso: String): String = runCatching {
+        val d = (System.currentTimeMillis() - Instant.parse(iso).toEpochMilli()) / 86_400_000
+        when { d < 1 -> "today"; d < 7 -> "${d}d ago"; d < 30 -> "${d / 7}w ago"; else -> "${d / 30}mo ago" }
+    }.getOrElse { iso.take(10) }
+
+    // ── Table rendering ───────────────────────────────────────────────────────
+
+    private fun renderTableResults(items: List<Map<String, AttributeValue>>) {
+        if (items.isEmpty()) { rowCountPill.text = " 0 rows "; return }
+
+        // Restore any hidden columns before rebuilding so the model stays consistent
+        hiddenColumns.values.forEach { resultsTable.columnModel.addColumn(it) }
+        hiddenColumns.clear()
+
+        val existingCols = (0 until tableModel.columnCount)
+            .map { tableModel.getColumnName(it) }.filter { it != "#" }.toSet()
+        val allCols = if (existingCols.isEmpty()) {
+            items.flatMap { it.keys }.distinct().sortedWith(Comparator { a, b ->
+                val pk = cachedSchema?.partitionKey?.name
+                val sk = cachedSchema?.sortKey?.name
+                when { a == pk -> -2; b == pk -> 2; a == sk -> -1; b == sk -> 1; else -> a.compareTo(b) }
+            })
+        } else (existingCols + items.flatMap { it.keys }).distinct().toList()
+
+        tableModel.setColumnIdentifiers((listOf("#") + allCols).toTypedArray())
+        val cols = allCols
+        val rowOffset = (currentPage - 1) * currentPageSize
+        items.forEachIndexed { idx, item ->
+            tableModel.addRow(
+                (listOf("${rowOffset + idx + 1}") + cols.map { col -> item[col]?.displayValue() ?: "" }).toTypedArray()
+            )
+        }
+
+        // Column header decoration — row number + PK badge
+        val pkName = cachedSchema?.partitionKey?.name
+        resultsTable.tableHeader.defaultRenderer = object : TableCellRenderer {
+            private val def = resultsTable.tableHeader.defaultRenderer
+            override fun getTableCellRendererComponent(tbl: JTable, v: Any?, sel: Boolean, foc: Boolean, r: Int, c: Int): Component {
+                val base = def.getTableCellRendererComponent(tbl, v, sel, foc, r, c) as? JLabel
+                    ?: return def.getTableCellRendererComponent(tbl, v, sel, foc, r, c)
+                base.background = DColors.bg2; base.foreground = DColors.fg2; base.isOpaque = true
+                base.font = base.font.deriveFont(Font.PLAIN, 11.5f)
+                base.border = BorderFactory.createEmptyBorder(0, 8, 0, 8)
+                val colName = tbl.getColumnName(c)
+
+                // Row-number column header
+                if (colName == "#") {
+                    base.text = "#"; base.foreground = DColors.fg3
+                    base.horizontalAlignment = SwingConstants.CENTER
+                    return base
+                }
+
+                // PK column — render as panel with a badge, properly centred
+                if (colName == pkName) {
+                    return JPanel().apply {
+                        layout = BoxLayout(this, BoxLayout.LINE_AXIS)
+                        background = DColors.bg2; isOpaque = true
+                        border = BorderFactory.createEmptyBorder(0, 8, 0, 8)
+                        add(object : JLabel("PK") {
+                            override fun paintComponent(g: Graphics) {
+                                val g2 = g as Graphics2D
+                                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                                g2.color = DColors.bg3; g2.fillRoundRect(0, 0, width, height, 4, 4)
+                                super.paintComponent(g)
+                            }
+                        }.apply {
+                            font = base.font.deriveFont(Font.BOLD, 9f); foreground = DColors.accent
+                            border = BorderFactory.createEmptyBorder(1, 3, 1, 3); isOpaque = false
+                            alignmentY = Component.CENTER_ALIGNMENT
+                        })
+                        add(Box.createHorizontalStrut(4))
+                        add(JLabel("$colName ↕").apply {
+                            font = base.font; foreground = DColors.accent
+                            alignmentY = Component.CENTER_ALIGNMENT
+                        })
+                    }
+                }
+
+                base.text = "$colName ↕"
+                return base
+            }
+        }
+
+        rowSorter = TableRowSorter(tableModel)
+        resultsTable.rowSorter = rowSorter
+        applyFilter()
+        fitColumns()
+    }
+
+    private fun fitColumns() {
+        if (resultsTable.columnCount == 0) return
+        // Pin the row-number column (#)
+        resultsTable.columnModel.getColumn(0).let {
+            it.preferredWidth = 44; it.minWidth = 44; it.maxWidth = 60
+        }
+        for (col in 1 until resultsTable.columnCount) {
+            var max = 80
+            val hc = resultsTable.tableHeader.defaultRenderer
+                .getTableCellRendererComponent(resultsTable, resultsTable.getColumnName(col), false, false, -1, col)
+            max = maxOf(max, hc.preferredSize.width + 20)
+            for (row in 0 until minOf(resultsTable.rowCount, 80)) {
+                val c = resultsTable.prepareRenderer(resultsTable.getCellRenderer(row, col), row, col)
+                max = maxOf(max, c.preferredSize.width + 16)
+            }
+            resultsTable.columnModel.getColumn(col).preferredWidth = minOf(max, 300)
+        }
+    }
+
+    private fun applyFilter() {
+        val text = filterInput.text.trim()
+        rowSorter?.rowFilter = if (text.isEmpty()) null else
+            javax.swing.RowFilter.regexFilter("(?i)${Regex.escape(text)}")
+    }
+
+    // ── Error display ─────────────────────────────────────────────────────────
+
+    private fun showError(msg: String) {
+        JOptionPane.showMessageDialog(this, msg, "Error", JOptionPane.ERROR_MESSAGE)
     }
 
     // ── Context menu ──────────────────────────────────────────────────────────
@@ -500,625 +866,252 @@ class QueryRunnerPanel(
     private fun showContextMenu(e: MouseEvent) {
         val row = resultsTable.rowAtPoint(e.point)
         if (row >= 0 && !resultsTable.isRowSelected(row)) resultsTable.setRowSelectionInterval(row, row)
-
-        val menu = JPopupMenu()
-        menu.add(JMenuItem("Edit item…").apply {
-            addActionListener {
-                val r = resultsTable.selectedRow.takeIf { it >= 0 } ?: return@addActionListener
-                openItemEditor(rawItems.getOrNull(resultsTable.convertRowIndexToModel(r)) ?: return@addActionListener)
-            }
-        })
-        menu.add(JMenuItem("Delete selected").apply { addActionListener { batchDelete() } })
-        menu.addSeparator()
-        menu.add(JMenuItem("Copy cell").apply {
-            addActionListener {
-                val r = resultsTable.selectedRow; val c = resultsTable.selectedColumn
-                if (r >= 0 && c >= 0) {
-                    val text = resultsTable.getValueAt(r, c)?.toString() ?: ""
-                    java.awt.Toolkit.getDefaultToolkit().systemClipboard
-                        .setContents(java.awt.datatransfer.StringSelection(text), null)
+        JPopupMenu().apply {
+            add(JMenuItem("Edit item…").also { mi ->
+                mi.addActionListener {
+                    val r = resultsTable.selectedRow.takeIf { it >= 0 } ?: return@addActionListener
+                    openItemEditor(rawItems.getOrNull(resultsTable.convertRowIndexToModel(r)) ?: return@addActionListener)
                 }
-            }
-        })
-        menu.show(resultsTable, e.x, e.y)
+            })
+            add(JMenuItem("Delete selected").also { mi -> mi.addActionListener { batchDelete() } })
+            addSeparator()
+            add(JMenuItem("Copy cell").also { mi ->
+                mi.addActionListener {
+                    val r = resultsTable.selectedRow; val c = resultsTable.selectedColumn
+                    if (r >= 0 && c >= 0) Toolkit.getDefaultToolkit().systemClipboard
+                        .setContents(java.awt.datatransfer.StringSelection(resultsTable.getValueAt(r, c)?.toString() ?: ""), null)
+                }
+            })
+        }.show(resultsTable, e.x, e.y)
     }
 
-    // ── Item editor ───────────────────────────────────────────────────────────
+    // ── Item CRUD ─────────────────────────────────────────────────────────────
+
+    private fun addRow() {
+        val schema = cachedSchema
+        val pkKeys = buildSet {
+            schema?.partitionKey?.name?.let { add(it) }
+            schema?.sortKey?.name?.let     { add(it) }
+        }
+        ItemEditorDialog(project, emptyMap(), pkKeys,
+            onSave   = { updated -> saveNewItem(updated) },
+            onDelete = {},
+        ).show()
+    }
 
     private fun openItemEditor(item: Map<String, AttributeValue>) {
         val schema = cachedSchema
         val pkKeys = buildSet {
             schema?.partitionKey?.name?.let { add(it) }
-            schema?.sortKey?.name?.let { add(it) }
+            schema?.sortKey?.name?.let     { add(it) }
         }
-
-        ItemEditorDialog(
-            project = project,
-            item = item,
-            pkKeys = pkKeys,
-            onSave = { updated -> saveItem(item, updated) },
+        ItemEditorDialog(project, item, pkKeys,
+            onSave   = { updated -> saveItem(item, updated) },
             onDelete = { deleteItem(item) },
         ).show()
+    }
+
+    private fun saveNewItem(item: Map<String, AttributeValue>) {
+        scope.launch {
+            runCatching {
+                registry.clientFor(connectionName)
+                    .putItem(PutItemRequest.builder().tableName(tableName).item(item).build())
+                    .await()
+            }.onSuccess  {
+                withContext(Dispatchers.Swing) {
+                    recordHistory(item, "Created")
+                    execute()
+                }
+            }.onFailure  { ex -> withContext(Dispatchers.Swing) { Messages.showErrorDialog(project, ex.message, "Save Failed") } }
+        }
     }
 
     private fun saveItem(original: Map<String, AttributeValue>, updated: Map<String, AttributeValue>) {
         val schema = cachedSchema ?: return
         scope.launch {
-            val client = registry.clientFor(connectionName)
             runCatching {
-                val key = buildMap {
+                val client = registry.clientFor(connectionName)
+                val key    = buildMap {
                     put(schema.partitionKey.name, updated[schema.partitionKey.name]!!)
                     schema.sortKey?.name?.let { put(it, updated[it]!!) }
                 }
-                // Build UpdateItem expression from changed attributes
                 val toUpdate = updated.filterKeys { it !in key }
-                if (toUpdate.isEmpty()) return@launch
-
+                if (toUpdate.isEmpty()) return@runCatching
                 val names  = toUpdate.keys.mapIndexed { i, k -> "#a$i" to k }.toMap()
                 val values = toUpdate.entries.mapIndexed { i, (_, v) -> ":v$i" to v }.toMap()
                 val expr   = names.keys.zip(values.keys).joinToString(", ") { (n, v) -> "$n = $v" }
-
                 client.updateItem(UpdateItemRequest.builder()
-                    .tableName(tableName)
-                    .key(key)
+                    .tableName(tableName).key(key)
                     .updateExpression("SET $expr")
                     .expressionAttributeNames(names)
                     .expressionAttributeValues(values)
                     .build()).await()
-            }.onSuccess {
+            }.onSuccess  {
                 withContext(Dispatchers.Swing) {
-                    statusLabel.text = "✓ Item saved"
-                    // Refresh results
+                    val changes = updated.entries.mapNotNull { (k, v) ->
+                        val old = original[k]?.displayValue()
+                        val new = v.displayValue()
+                        if (old != new) "$k: $old → $new" else null
+                    }
+                    recordHistory(original, "Edited", changes)
                     execute()
                 }
-            }.onFailure { ex ->
-                withContext(Dispatchers.Swing) {
-                    Messages.showErrorDialog(project, "Save failed: ${ex.message}", "Error")
-                }
-            }
+            }.onFailure  { ex -> withContext(Dispatchers.Swing) { Messages.showErrorDialog(project, ex.message, "Save Failed") } }
         }
     }
 
     private fun deleteItem(item: Map<String, AttributeValue>) {
         val schema = cachedSchema ?: return
         scope.launch {
-            val client = registry.clientFor(connectionName)
             runCatching {
-                val key = buildMap {
+                val client = registry.clientFor(connectionName)
+                val key    = buildMap {
                     put(schema.partitionKey.name, item[schema.partitionKey.name]!!)
                     schema.sortKey?.name?.let { sk -> item[sk]?.let { put(sk, it) } }
                 }
                 client.deleteItem(DeleteItemRequest.builder().tableName(tableName).key(key).build()).await()
-            }.onSuccess {
-                withContext(Dispatchers.Swing) { statusLabel.text = "✓ Item deleted"; execute() }
-            }.onFailure { ex ->
+            }.onSuccess  {
                 withContext(Dispatchers.Swing) {
-                    Messages.showErrorDialog(project, "Delete failed: ${ex.message}", "Error")
+                    recordHistory(item, "Deleted")
+                    execute()
                 }
-            }
+            }.onFailure  { ex -> withContext(Dispatchers.Swing) { Messages.showErrorDialog(project, ex.message, "Delete Failed") } }
         }
     }
 
-    // ── Batch delete ──────────────────────────────────────────────────────────
-
-    private fun batchDelete() {
-        val selectedRows = resultsTable.selectedRows
-        if (selectedRows.isEmpty()) { statusLabel.text = "No rows selected"; return }
+    fun batchDelete() {
+        val selected = resultsTable.selectedRows
+        if (selected.isEmpty()) return
         val schema = cachedSchema ?: return
-
-        val confirm = Messages.showYesNoDialog(
-            project,
-            "Delete ${selectedRows.size} selected item(s) from DynamoDB?",
-            "Batch Delete",
-            Messages.getWarningIcon()
-        )
+        val confirm = Messages.showYesNoDialog(project, "Delete ${selected.size} item(s)?", "Batch Delete", Messages.getWarningIcon())
         if (confirm != Messages.YES) return
-
-        val itemsToDelete = selectedRows.map { row ->
-            rawItems[resultsTable.convertRowIndexToModel(row)]
-        }
-
+        val items = selected.map { rawItems[resultsTable.convertRowIndexToModel(it)] }
         scope.launch {
             val client = registry.clientFor(connectionName)
-            var deleted = 0
-            itemsToDelete.forEach { item ->
+            items.forEach { item ->
                 runCatching {
                     val key = buildMap {
                         put(schema.partitionKey.name, item[schema.partitionKey.name]!!)
                         schema.sortKey?.name?.let { sk -> item[sk]?.let { put(sk, it) } }
                     }
                     client.deleteItem(DeleteItemRequest.builder().tableName(tableName).key(key).build()).await()
-                    deleted++
                 }
             }
-            withContext(Dispatchers.Swing) {
-                statusLabel.text = "✓ Deleted $deleted item(s)"
-                execute()
-            }
+            withContext(Dispatchers.Swing) { execute() }
         }
     }
 
     // ── Export ────────────────────────────────────────────────────────────────
 
-    private fun showExportDialog() {
-        if (rawItems.isEmpty()) { statusLabel.text = "No results to export"; return }
+    fun showExportDialog() {
+        if (rawItems.isEmpty()) return
         val chooser = JFileChooser().apply {
             dialogTitle = "Export Results"
             addChoosableFileFilter(FileNameExtensionFilter("JSON files", "json"))
-            addChoosableFileFilter(FileNameExtensionFilter("CSV files", "csv"))
-            fileFilter = choosableFileFilters[1]
-            selectedFile = File("${tableName}-results.json")
+            addChoosableFileFilter(FileNameExtensionFilter("CSV files",  "csv"))
+            fileFilter = choosableFileFilters[0]
+            selectedFile = File("$tableName-results.json")
         }
         if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return
-        val file = chooser.selectedFile
         runCatching {
+            val file = chooser.selectedFile
             if (file.name.endsWith(".csv")) ResultExporter.exportCsv(rawItems, file)
             else ResultExporter.exportJson(rawItems, file)
-            statusLabel.text = "✓ Exported ${rawItems.size} items to ${file.name}"
-        }.onFailure { ex ->
-            Messages.showErrorDialog(project, "Export failed: ${ex.message}", "Error")
-        }
+        }.onFailure { ex -> Messages.showErrorDialog(project, ex.message, "Export Failed") }
     }
 
-    // ── Filter bar ────────────────────────────────────────────────────────────
+    // ── Clear ─────────────────────────────────────────────────────────────────
 
-    private fun applyFilter() {
-        val text = filterField.text.trim()
-        rowSorter?.rowFilter = if (text.isEmpty()) null else
-            javax.swing.RowFilter.regexFilter("(?i)${Regex.escape(text)}")
-    }
-
-    // ── AWS calls ─────────────────────────────────────────────────────────────
-
-    /**
-     * Returns the effective page size for the current DynamoDB request.
-     * When a LIMIT is set, cap to the remaining items not yet served.
-     */
-    private fun extractPageSize(): Int {
-        val base = pageSizeCombo.selectedItem as? Int ?: 20
-        val limit = queryTotalLimit ?: return base
-        val served = pageStartOffset.getOrElse(currentPage - 1) { pageStartOffset.last() }
-        val remaining = limit - served
-        return if (remaining > 0) minOf(base, remaining) else base
-    }
-
-    /** Returns the explicit LIMIT from the DQL, or null if none. */
-    private fun extractTotalLimit(dql: String): Int? =
-        Regex("""LIMIT\s+(\d+)""", RegexOption.IGNORE_CASE)
-            .find(dql)?.groupValues?.get(1)?.toIntOrNull()
-
-    private suspend fun executeQuery(
-        client: software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient,
-        dql: String,
-        schema: TableSchema?,
-        startKey: Map<String, AttributeValue>?,
-    ): ExecutionResult {
-        val pageSize = extractPageSize()
-        val hasWhere = dql.contains("WHERE", ignoreCase = true)
-
-        if (!hasWhere) {
-            // Plain scan — no WHERE
-            val req = ScanRequest.builder()
-                .tableName(tableName).limit(pageSize)
-                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
-                .apply { startKey?.let { exclusiveStartKey(it) } }
-                .build()
-            val resp = client.scan(req).await()
-            return ExecutionResult.QueryResult(
-                items = resp.items(),
-                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
-                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
-            )
-        }
-
-        val parsed = parseDqlWhereClause(dql)
-        val indexName = Regex("""USE\s+INDEX\s*\(\s*(\S+?)\s*\)""", RegexOption.IGNORE_CASE)
-            .find(dql)?.groupValues?.get(1)
-
-        // Determine key attribute names for the table (or the chosen GSI/LSI)
-        val keyAttrNames: Set<String> = if (schema != null) {
-            val keys = mutableSetOf(schema.partitionKey.name)
-            schema.sortKey?.let { keys.add(it.name) }
-            if (indexName != null) {
-                // Also include GSI/LSI key names so they route to keyCondition
-                schema.gsis.firstOrNull { it.indexName == indexName }?.let {
-                    keys.add(it.partitionKey.name); it.sortKey?.let { sk -> keys.add(sk.name) }
-                }
-                schema.lsis.firstOrNull { it.indexName == indexName }?.let {
-                    keys.add(it.sortKey.name)
-                }
-            }
-            keys
-        } else emptySet()
-
-        // Split the parsed expression into individual AND-connected conditions
-        // then route each to keyCondition or filterExpression based on the attribute
-        val splitConditions = splitAndConditions(parsed.expression)
-        val keyCondParts = mutableListOf<String>()
-        val filterParts = mutableListOf<String>()
-
-        for (cond in splitConditions) {
-            // Find which #alias attributes appear in this condition
-            val aliasesInCond = Regex("""#(\w+)""").findAll(cond).map { it.groupValues[1] }.toSet()
-            val isKeyCondition = aliasesInCond.isNotEmpty() && aliasesInCond.all { it in keyAttrNames }
-            if (isKeyCondition && keyAttrNames.isNotEmpty()) {
-                keyCondParts.add(cond)
-            } else {
-                filterParts.add(cond)
-            }
-        }
-
-        val keyCondExpr = keyCondParts.joinToString(" AND ")
-        val filterExpr  = filterParts.joinToString(" AND ")
-
-        return if (keyCondExpr.isNotBlank()) {
-            // Use Query with key conditions; non-key conditions go to filterExpression
-            val req = QueryRequest.builder()
-                .tableName(tableName).limit(pageSize)
-                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
-                .keyConditionExpression(keyCondExpr)
-                .apply {
-                    if (filterExpr.isNotBlank()) filterExpression(filterExpr)
-                    if (parsed.attrNames.isNotEmpty()) expressionAttributeNames(parsed.attrNames)
-                    if (parsed.attrValues.isNotEmpty()) expressionAttributeValues(parsed.attrValues)
-                    indexName?.let { indexName(it) }
-                    startKey?.let { exclusiveStartKey(it) }
-                }
-                .build()
-            val resp = client.query(req).await()
-            ExecutionResult.QueryResult(
-                items = resp.items(),
-                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
-                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
-            )
-        } else {
-            // No key conditions — fall back to Scan with filterExpression
-            val effectiveFilter = parsed.expression
-            val req = ScanRequest.builder()
-                .tableName(tableName).limit(pageSize)
-                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
-                .apply {
-                    if (effectiveFilter.isNotBlank()) filterExpression(effectiveFilter)
-                    if (parsed.attrNames.isNotEmpty()) expressionAttributeNames(parsed.attrNames)
-                    if (parsed.attrValues.isNotEmpty()) expressionAttributeValues(parsed.attrValues)
-                    startKey?.let { exclusiveStartKey(it) }
-                }
-                .build()
-            val resp = client.scan(req).await()
-            ExecutionResult.QueryResult(
-                items = resp.items(),
-                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
-                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
-            )
-        }
-    }
-
-    /**
-     * Splits a DynamoDB condition expression on top-level AND keywords,
-     * respecting parentheses so nested expressions are not broken.
-     */
-    private fun splitAndConditions(expr: String): List<String> {
-        val parts = mutableListOf<String>()
-        var depth = 0
-        var start = 0
-        var i = 0
-        while (i < expr.length) {
-            when {
-                expr[i] == '(' -> { depth++; i++ }
-                expr[i] == ')' -> { depth--; i++ }
-                depth == 0 && expr.substring(i).matches(Regex("""(?i)AND\b.*""")) -> {
-                    parts.add(expr.substring(start, i).trim())
-                    i += 3 // skip "AND"
-                    while (i < expr.length && expr[i].isWhitespace()) i++
-                    start = i
-                }
-                else -> i++
-            }
-        }
-        if (start < expr.length) parts.add(expr.substring(start).trim())
-        return parts.filter { it.isNotBlank() }
-    }
-
-    /**
-     * Parses the DQL WHERE clause and returns a Triple of:
-     *  1. The key-condition expression (with placeholders for all literals)
-     *  2. Expression attribute names map (#alias -> realName)
-     *  3. Expression attribute values map (:placeholder -> AttributeValue)
-     *
-     * Supports all of:
-     *  - Plain SQL style:  WHERE city = "Tampa" AND age > 25
-     *  - Hash-prefixed:    WHERE #pk = 'abc' AND #sk > 100
-     *  - Explicit params:  WHERE #pk = :pkVal  (where :pkVal resolved via `:pkVal = 'abc'` elsewhere in the DQL)
-     */
-    private data class ParsedWhere(
-        val expression: String,
-        val attrNames: Map<String, String>,
-        val attrValues: Map<String, AttributeValue>,
-    )
-
-    /** DynamoDB expression keywords / functions that must NOT be treated as attribute names */
-    private val DQL_KEYWORDS = setOf(
-        "AND", "OR", "NOT", "BETWEEN", "IN", "NULL", "TRUE", "FALSE",
-        "begins_with", "contains", "attribute_exists", "attribute_not_exists",
-        "attribute_type", "size", "if_not_exists", "list_append"
-    )
-
-    private fun parseDqlWhereClause(dql: String): ParsedWhere {
-        // Extract raw WHERE clause (stop before known trailing keywords)
-        val rawWhere = Regex(
-            """WHERE\s+(.+?)(?=\s+(?:LIMIT\b|USE\s+INDEX|ORDER\s+BY|ASC\b|DESC\b)|$|;)""",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
-        ).find(dql)?.groups?.get(1)?.value?.trim() ?: return ParsedWhere("", emptyMap(), emptyMap())
-
-        val attrNames  = mutableMapOf<String, String>()
-        val attrValues = mutableMapOf<String, AttributeValue>()
-        var paramCounter = 0
-
-        // ── Step 1: Replace string literals ('value' or "value") first so their
-        //            content is never misinterpreted as attribute names or numbers.
-        var expr = Regex("""(['"])((?:(?!\1).)*?)\1""").replace(rawWhere) { match ->
-            val paramKey = ":_lit${paramCounter++}"
-            attrValues[paramKey] = AttributeValue.builder().s(match.groupValues[2]).build()
-            paramKey
-        }
-
-        // ── Step 2: Replace bare numeric literals with :_litN placeholders
-        expr = Regex("""(?<![:\w])(\d+(?:\.\d+)?)(?!\w)""").replace(expr) { match ->
-            val paramKey = ":_lit${paramCounter++}"
-            attrValues[paramKey] = AttributeValue.builder().n(match.groupValues[1]).build()
-            paramKey
-        }
-
-        // ── Step 3: Collect already-hash-prefixed attribute names (#attr)
-        Regex("""#(\w+)""").findAll(expr).forEach {
-            attrNames["#${it.groups[1]!!.value}"] = it.groups[1]!!.value
-        }
-
-        // ── Step 4: Auto-prefix bare attribute names (no # prefix) that are not
-        //            DQL keywords, :params, or function names followed by '('
-        //   Matches a word that:
-        //    - is not preceded by # or :
-        //    - is not followed by (   (i.e. not a function call)
-        //    - is not a known keyword
-        expr = Regex("""(?<![#:])(?<!\w)([A-Za-z_][A-Za-z0-9_]*)(?!\s*\()""").replace(expr) { match ->
-            val word = match.value
-            if (word.uppercase() in DQL_KEYWORDS.map { it.uppercase() }) {
-                word  // leave keywords alone
-            } else {
-                val alias = "#$word"
-                attrNames[alias] = word
-                alias
-            }
-        }
-
-        // ── Step 5: Resolve any explicit :param placeholders (e.g. WHERE #pk = :pkVal)
-        Regex(""":((?!_lit)\w+)""").findAll(expr).forEach { match ->
-            val paramKey = match.value
-            if (!attrValues.containsKey(paramKey)) {
-                val valueStr = Regex(
-                    """${Regex.escape(paramKey)}\s*=\s*['"]?([^'",\s\)]+)['"]?""",
-                    RegexOption.IGNORE_CASE
-                ).find(dql)?.groups?.get(1)?.value?.trim()
-                attrValues[paramKey] = when {
-                    valueStr == null -> AttributeValue.builder().s("<missing: $paramKey>").build()
-                    valueStr.toDoubleOrNull() != null -> AttributeValue.builder().n(valueStr).build()
-                    else -> AttributeValue.builder().s(valueStr).build()
-                }
-            }
-        }
-
-        return ParsedWhere(expr, attrNames, attrValues)
-    }
-
-    private fun executeUpdate(_dql: String): ExecutionResult =
-        ExecutionResult.Error("UPDATE translation not yet implemented.")
-
-    // ── Native DynamoDB query execution ───────────────────────────────────────
-
-    private suspend fun executeNativeQuery(
-        client: software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient,
-        startKey: Map<String, AttributeValue>?,
-    ): ExecutionResult {
-        val pageSize = extractPageSize()
-        val isQuery  = nativeOperationCombo.selectedItem == "Query"
-        val keyCondExpr  = nativeKeyCondField.text.trim().takeIf { it.isNotBlank() }
-        val filterExpr   = nativeFilterField.text.trim().takeIf { it.isNotBlank() }
-        val attrNamesRaw = nativeAttrNamesArea.text.trim()
-        val attrValsRaw  = nativeAttrValuesArea.text.trim()
-
-        val exprAttrNames: Map<String, String> = if (attrNamesRaw.isNotBlank())
-            parseAttrNamesJson(attrNamesRaw) else emptyMap()
-        val exprAttrValues: Map<String, AttributeValue> = if (attrValsRaw.isNotBlank())
-            parseAttrValuesJson(attrValsRaw) else emptyMap()
-
-        // Validate that all :placeholders in expressions have corresponding values
-        val allExprs = listOfNotNull(keyCondExpr, filterExpr).joinToString(" ")
-        val usedPlaceholders = Regex(""":\w+""").findAll(allExprs).map { it.value }.toSet()
-        val missingPlaceholders = usedPlaceholders - exprAttrValues.keys
-        if (missingPlaceholders.isNotEmpty()) {
-            return ExecutionResult.Error(
-                "Missing Attribute Values for placeholder(s): ${missingPlaceholders.joinToString(", ")}\n\n" +
-                "Add them in the 'Attr Values' field, e.g.:\n" +
-                missingPlaceholders.joinToString("\n") { "  \"$it\": \"your_value\"" } +
-                "\n\nWrap all entries in { } like: {${missingPlaceholders.first()}: \"value\"}"
-            )
-        }
-
-        return if (isQuery) {
-            if (keyCondExpr == null)
-                return ExecutionResult.Error("Key Condition Expression is required for Query operation.")
-            val req = QueryRequest.builder()
-                .tableName(tableName).limit(pageSize)
-                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
-                .keyConditionExpression(keyCondExpr)
-                .apply {
-                    filterExpr?.let { filterExpression(it) }
-                    if (exprAttrNames.isNotEmpty()) expressionAttributeNames(exprAttrNames)
-                    if (exprAttrValues.isNotEmpty()) expressionAttributeValues(exprAttrValues)
-                    startKey?.let { exclusiveStartKey(it) }
-                }.build()
-            val resp = client.query(req).await()
-            ExecutionResult.QueryResult(
-                items = resp.items(),
-                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
-                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
-            )
-        } else {
-            val req = ScanRequest.builder()
-                .tableName(tableName).limit(pageSize)
-                .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
-                .apply {
-                    filterExpr?.let { filterExpression(it) }
-                    if (exprAttrNames.isNotEmpty()) expressionAttributeNames(exprAttrNames)
-                    if (exprAttrValues.isNotEmpty()) expressionAttributeValues(exprAttrValues)
-                    startKey?.let { exclusiveStartKey(it) }
-                }.build()
-            val resp = client.scan(req).await()
-            ExecutionResult.QueryResult(
-                items = resp.items(),
-                nextKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() },
-                consumedRcu = resp.consumedCapacity()?.capacityUnits(),
-            )
-        }
-    }
-
-    /**
-     * Parses a simplified JSON object like {"#name": "name", "#city": "city"}
-     * into a Map<String, String> for Expression Attribute Names.
-     */
-    private fun parseAttrNamesJson(json: String): Map<String, String> {
-        val result = mutableMapOf<String, String>()
-        val cleaned = json.trim().removePrefix("{").removeSuffix("}")
-        // Match "key": "value" pairs
-        val pattern = Regex(""""(#?\w+)"\s*:\s*"([^"]+)"""")
-        pattern.findAll(cleaned).forEach { match ->
-            result[match.groupValues[1]] = match.groupValues[2]
-        }
-        return result
-    }
-
-    /**
-     * Parses a simplified JSON object like {":city": "Tampa", ":age": 25, ":flag": true}
-     * into a Map<String, AttributeValue>. Supports strings, numbers, and booleans.
-     * Also supports explicit DynamoDB JSON: {":v": {"S": "Tampa"}} or {":v": {"N": "25"}}.
-     */
-    private fun parseAttrValuesJson(json: String): Map<String, AttributeValue> {
-        val result = mutableMapOf<String, AttributeValue>()
-        val cleaned = json.trim().removePrefix("{").removeSuffix("}")
-        // Try to match each "key": value pair where value can be string, number, boolean,
-        // or nested object {"S": ...} / {"N": ...} / {"BOOL": ...}
-        val stringPat  = Regex(""""(:\w+)"\s*:\s*"([^"]*)"""".trim())
-        val numberPat  = Regex(""""(:\w+)"\s*:\s*(-?\d+(?:\.\d+)?)(?=[,\s}])""")
-        val boolPat    = Regex(""""(:\w+)"\s*:\s*(true|false)(?=[,\s}])""", RegexOption.IGNORE_CASE)
-        val dynStrPat  = Regex(""""(:\w+)"\s*:\s*\{\s*"S"\s*:\s*"([^"]*)"\s*}""")
-        val dynNumPat  = Regex(""""(:\w+)"\s*:\s*\{\s*"N"\s*:\s*"([^"]*)"\s*}""")
-        val dynBoolPat = Regex(""""(:\w+)"\s*:\s*\{\s*"BOOL"\s*:\s*(true|false)\s*}""", RegexOption.IGNORE_CASE)
-
-        fun applyAll(pat: Regex, block: (MatchResult) -> AttributeValue) {
-            pat.findAll(cleaned).forEach { result[it.groupValues[1]] = block(it) }
-        }
-
-        applyAll(dynStrPat)  { AttributeValue.builder().s(it.groupValues[2]).build() }
-        applyAll(dynNumPat)  { AttributeValue.builder().n(it.groupValues[2]).build() }
-        applyAll(dynBoolPat) { AttributeValue.builder().bool(it.groupValues[2].lowercase() == "true").build() }
-        // Simple values — only add if not already resolved as DynamoDB JSON
-        applyAll(stringPat)  { m -> result.getOrPut(m.groupValues[1]) { AttributeValue.builder().s(m.groupValues[2]).build() } ; AttributeValue.builder().s(m.groupValues[2]).build() }
-        applyAll(numberPat)  { m -> result.getOrPut(m.groupValues[1]) { AttributeValue.builder().n(m.groupValues[2]).build() } ; AttributeValue.builder().n(m.groupValues[2]).build() }
-        applyAll(boolPat)    { m -> result.getOrPut(m.groupValues[1]) { AttributeValue.builder().bool(m.groupValues[2].lowercase() == "true").build() } ; AttributeValue.builder().bool(m.groupValues[2].lowercase() == "true").build() }
-
-        return result
-    }
-
-
-    // ── Rendering ─────────────────────────────────────────────────────────────
-
-    private fun renderTableResults(items: List<Map<String, AttributeValue>>) {
-        if (items.isEmpty()) return
-        val existingCols = (0 until tableModel.columnCount).map { tableModel.getColumnName(it) }.toSet()
-        val allCols = if (existingCols.isEmpty()) {
-            items.flatMap { it.keys }.distinct().sorted()
-        } else {
-            (existingCols + items.flatMap { it.keys }).distinct().sorted()
-        }
-        if (existingCols.isEmpty() || allCols.size > existingCols.size) {
-            tableModel.setColumnIdentifiers(allCols.toTypedArray())
-        }
-        val cols = (0 until tableModel.columnCount).map { tableModel.getColumnName(it) }
-        items.forEach { item ->
-            tableModel.addRow(cols.map { col -> item[col]?.displayValue() ?: "" }.toTypedArray())
-        }
-        // Set up / refresh row sorter for filter
-        rowSorter = TableRowSorter(tableModel)
-        resultsTable.rowSorter = rowSorter
-        applyFilter()
-        resultCards.show(resultPanel, "table")
-        fitColumnsToContent()
-    }
-
-    private fun renderRaw() {
-        val sb = StringBuilder()
-        rawItems.forEachIndexed { i, item ->
-            sb.appendLine("// Item ${i + 1}")
-            item.entries.sortedBy { it.key }.forEach { (k, v) -> sb.appendLine("  $k: ${v.displayValue()}") }
-            sb.appendLine()
-        }
-        rawArea.text = sb.toString()
-        rawArea.caretPosition = 0
-        resultCards.show(resultPanel, "raw")
-    }
-
-    private fun clearResults() {
+    fun clearResults() {
         tableModel.rowCount = 0; tableModel.columnCount = 0
-        rawItems.clear(); rawArea.text = ""
+        rawItems.clear()
         pageKeys.clear(); pageKeys.add(null)
-        pageStartOffset.clear(); pageStartOffset.add(0)
-        currentPage = 1; queryTotalLimit = null
-        prevPageBtn.isEnabled = false; nextPageBtn.isEnabled = false
-        pageLabel.text = "Page 1"
-        statusLabel.text = "Ready"; detailPanel.clear()
-        rowSorter = null; filterField.text = ""
+        currentPage = 1
+        updateNavButtons(hasNext = false)
+        rowCountPill.text = " — "; timingPill.text = " — "; rcuPill.text = ""
+        rowSorter = null; filterInput.text = ""
+        hiddenColumns.clear()
+        inspector.clear()
     }
 
-    private fun toggleRaw() {
-        if (rawToggle.isSelected) renderRaw() else resultCards.show(resultPanel, "table")
-    }
+    // ── Public API ────────────────────────────────────────────────────────────
 
-    private fun showError(msg: String) {
-        rawArea.text = "ERROR:\n$msg"; resultCards.show(resultPanel, "raw")
-    }
+    fun showTableData() { if (rawItems.isEmpty() && tableModel.rowCount == 0) execute() }
+    fun getSchema()     = cachedSchema
+    fun hasResults()    = rawItems.isNotEmpty()
 
+    // ── Widget helpers ────────────────────────────────────────────────────────
+
+    /** IntelliJ-style bordered button (used in row-toolbar). */
+    private fun ijBtn(icon: Icon, tooltip: String, action: () -> Unit) =
+        JButton(icon).apply {
+            toolTipText         = tooltip
+            isBorderPainted     = false
+            isContentAreaFilled = false
+            isFocusPainted      = false
+            border              = BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(DColors.line, 1, true),
+                BorderFactory.createEmptyBorder(2, 4, 2, 4))
+            preferredSize       = Dimension(26, 26)
+            maximumSize         = Dimension(26, 26)
+            minimumSize         = Dimension(26, 26)
+            addActionListener   { action() }
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent) { if (isEnabled) background = DColors.bg3 }
+                override fun mouseExited(e: MouseEvent)  { background = DColors.bg2 }
+            })
+        }
+
+    /** Icon-only mini button (used in results-toolbar). */
+    private fun miniBtn(icon: Icon, tip: String, action: () -> Unit) =
+        JButton(icon).apply {
+            toolTipText         = tip
+            isBorderPainted     = false
+            isContentAreaFilled = false
+            isFocusPainted      = false
+            preferredSize       = Dimension(22, 22)
+            addActionListener   { action() }
+        }
+
+    /** Rounded pill label for stats. */
+    private fun statPill(text: String, fg: Color = DColors.fg2) =
+        object : JLabel(" $text ") {
+            override fun paintComponent(g: Graphics) {
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                // fill
+                g2.color = DColors.bg2
+                g2.fillRoundRect(0, 0, width, height, 16, 16)
+                // border stroke drawn manually so corners stay rounded
+                g2.color = DColors.line
+                g2.drawRoundRect(0, 0, width - 1, height - 1, 16, 16)
+                super.paintComponent(g)
+            }
+        }.apply {
+            foreground = fg; font = font.deriveFont(Font.BOLD, 11f); isOpaque = false
+            border = BorderFactory.createEmptyBorder(2, 6, 2, 6)
+        }
+
+    // ── AttributeValue helpers ────────────────────────────────────────────────
 
     private fun AttributeValue.displayValue(): String = when {
-        s()    != null -> s()!!
-        n()    != null -> n()!!
-        bool() != null -> bool().toString()
-        ss().isNotEmpty() -> ss().joinToString(", ", "[", "]")
-        ns().isNotEmpty() -> ns().joinToString(", ", "[", "]")
-        l().isNotEmpty()  -> "[List:${l().size}]"
-        m().isNotEmpty()  -> "{Map:${m().size}}"
-        nul() == true     -> "null"
-        b()   != null     -> "<Binary>"
-        else -> "?"
+        s()    != null            -> s()!!
+        n()    != null            -> n()!!
+        bool() != null            -> bool().toString()
+        ss().isNotEmpty()         -> ss().joinToString(", ", "[", "]")
+        ns().isNotEmpty()         -> ns().joinToString(", ", "[", "]")
+        l().isNotEmpty()          -> "[List:${l().size}]"
+        m().isNotEmpty()          -> "{Map:${m().size}}"
+        nul() == true             -> "null"
+        b()   != null             -> "<Binary>"
+        else                      -> "?"
     }
 
-    private fun defaultQuery() = "SELECT *\nFROM $tableName\nLIMIT 50"
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    fun showTableData() {
-        rawToggle.isSelected = false
-        resultCards.show(resultPanel, "table")
-        if (rawItems.isEmpty() && tableModel.rowCount == 0 && runBtn.isEnabled) {
-            execute()
-        }
-    }
+    fun dispose() = scope.cancel()
 
-    fun loadQuery(dql: String) {
-        ApplicationManager.getApplication().runWriteAction { editor.document.setText(dql) }
-    }
-
-    fun dispose() {
-        EditorFactory.getInstance().releaseEditor(editor)
-        scope.cancel()
-    }
+    // ── Result types ─────────────────────────────────────────────────────────
 
     private sealed class ExecutionResult {
         data class QueryResult(
@@ -1126,7 +1119,6 @@ class QueryRunnerPanel(
             val nextKey: Map<String, AttributeValue>?,
             val consumedRcu: Double?,
         ) : ExecutionResult()
-        data class UpdateResult(val consumedWcu: Double?) : ExecutionResult()
         data class Error(val message: String) : ExecutionResult()
     }
 }
