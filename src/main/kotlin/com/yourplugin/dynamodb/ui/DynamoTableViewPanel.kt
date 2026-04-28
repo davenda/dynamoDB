@@ -19,31 +19,6 @@ class DynamoTableViewPanel(
     private val registry
         get() = ApplicationManager.getApplication().getService(DynamoConnectionRegistry::class.java)
 
-    // ── Title bar ─────────────────────────────────────────────────────────────
-    private val connPill = object : JLabel() {
-        override fun paintComponent(g: Graphics) {
-            val g2 = g as Graphics2D
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = background
-            g2.fillRoundRect(0, (height - 16) / 2, width, 16, 8, 8)
-            super.paintComponent(g)
-        }
-    }.apply {
-        font       = font.deriveFont(Font.PLAIN, 10f)
-        foreground = DColors.good
-        background = DColors.goodBg
-        border     = BorderFactory.createEmptyBorder(0, 8, 0, 10)
-        isOpaque   = false
-    }
-    private val titleBar = JPanel(BorderLayout()).apply {
-        background    = DColors.bg1
-        border        = MatteBorder(0, 0, 1, 0, DColors.line)
-        preferredSize = Dimension(0, 28)
-        maximumSize   = Dimension(Int.MAX_VALUE, 28)
-        minimumSize   = Dimension(0, 28)
-        add(connPill, BorderLayout.EAST)
-    }
-
     // ── Status bar ────────────────────────────────────────────────────────────
     private val statusLabel = JLabel().apply {
         font       = font.deriveFont(Font.PLAIN, 10f)
@@ -80,13 +55,8 @@ class DynamoTableViewPanel(
     init {
         background = DColors.bg0
 
-        val region = registry.allConnections()
-            .firstOrNull { it.name == connectionName }?.region ?: "us-east-1"
+        statusLabel.text = "  $connectionName  ·  $tableName"
 
-        connPill.text = "  ⬤  $connectionName  "
-        statusLabel.text     = "  $connectionName  ·  $tableName"
-
-        add(titleBar,    BorderLayout.NORTH)
         add(queryRunner, BorderLayout.CENTER)
         add(statusBar,   BorderLayout.SOUTH)
     }

@@ -285,8 +285,8 @@ class SidebarPanel(
                 g.color = DColors.bg1
                 g.fillRect(0, 0, width, height)
                 when {
-                    isSelected -> rowBg(g, width, height, DColors.accentSoft, leftRail = true, indent = 0)
-                    hovered    -> rowBg(g, width, height, DColors.bg2,        leftRail = false, indent = 0)
+                    isSelected -> rowBg(g, width, height, DColors.bg3, leftRail = false, indent = 0)
+                    hovered    -> rowBg(g, width, height, DColors.bg2, leftRail = false, indent = 0)
                 }
             }
         }.apply {
@@ -381,9 +381,9 @@ class SidebarPanel(
                 g.fillRect(0, 0, width, height)
                 when {
                     isActive -> rowBg(g, width, height, DColors.accentSoft,
-                        leftRail = true, indent = leftIndent - 4)
+                        leftRail = true, indent = 0)
                     hovered  -> rowBg(g, width, height, DColors.bg2,
-                        leftRail = false, indent = leftIndent - 4)
+                        leftRail = false, indent = 0)
                 }
             }
         }.apply {
@@ -888,7 +888,7 @@ private object ActionableError {
  */
 private object PrettyTooltip {
 
-    private const val MAX_W   = 400
+    private const val MAX_W   = 480
     private const val SHOW_MS = 350
 
     fun install(comp: JComponent, message: String, hint: ActionableError.Hint?) {
@@ -951,11 +951,10 @@ private object PrettyTooltip {
             border = BorderFactory.createEmptyBorder(12, 14, 12, 14)
         }
 
+        val contentW = MAX_W - 14 * 2 - 3   // usable inside padding + rail
+
         // Header row — icon + title
-        card.add(JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.LINE_AXIS)
-            isOpaque = false
-            alignmentX = Component.LEFT_ALIGNMENT
+        card.add(rowPanel().apply {
             add(JLabel(AllIcons.General.BalloonError))
             add(Box.createHorizontalStrut(8))
             add(JLabel("Connection failed").apply {
@@ -966,23 +965,20 @@ private object PrettyTooltip {
         })
         card.add(Box.createVerticalStrut(8))
 
-        // Error message — monospace, wrapped
-        card.add(wrappedLabel(message, mono = true, fg = DColors.fg2, sizePx = 11f).apply {
-            alignmentX = Component.LEFT_ALIGNMENT
-        })
+        // Error message — JTextArea wraps at its set width.
+        card.add(wrappedTextArea(message, contentW, fg = DColors.fg2, sizePx = 12f))
 
         if (hint != null) {
             card.add(Box.createVerticalStrut(10))
             card.add(JSeparator().apply {
-                foreground = DColors.line; alignmentX = Component.LEFT_ALIGNMENT
-                maximumSize = Dimension(Int.MAX_VALUE, 1)
+                foreground = DColors.line
+                alignmentX = Component.LEFT_ALIGNMENT
+                maximumSize = Dimension(contentW, 1)
             })
             card.add(Box.createVerticalStrut(10))
 
-            // Hint title — accent-coloured "Try this" header
-            card.add(JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.LINE_AXIS)
-                isOpaque = false; alignmentX = Component.LEFT_ALIGNMENT
+            // Hint title
+            card.add(rowPanel().apply {
                 add(JLabel("\uD83D\uDCA1").apply { font = font.deriveFont(13f) })
                 add(Box.createHorizontalStrut(6))
                 add(JLabel(hint.title).apply {
@@ -994,18 +990,15 @@ private object PrettyTooltip {
             card.add(Box.createVerticalStrut(4))
 
             for (step in hint.steps) {
-                card.add(JPanel().apply {
-                    layout = BoxLayout(this, BoxLayout.LINE_AXIS)
-                    isOpaque = false
-                    alignmentX = Component.LEFT_ALIGNMENT
+                card.add(rowPanel().apply {
                     border = BorderFactory.createEmptyBorder(2, 18, 2, 0)
-                    val bullet = JLabel("•").apply {
+                    add(JLabel("\u2022").apply {
                         foreground = DColors.fg3
                         font = font.deriveFont(Font.BOLD, 12f)
                         alignmentY = Component.TOP_ALIGNMENT
-                    }
-                    add(bullet); add(Box.createHorizontalStrut(6))
-                    add(wrappedLabel(step, mono = false, fg = DColors.fg1, sizePx = 11.5f).apply {
+                    })
+                    add(Box.createHorizontalStrut(6))
+                    add(wrappedTextArea(step, contentW - 24, fg = DColors.fg1, sizePx = 11.5f).apply {
                         alignmentY = Component.TOP_ALIGNMENT
                     })
                 })
@@ -1014,24 +1007,56 @@ private object PrettyTooltip {
 
         win.contentPane = card
         win.pack()
-        // pack() under-estimates width because Swing's HTML renderer uses the CSS
-        // width hint only for line-wrapping, not for the JLabel's own preferredSize.
-        // Force the window to exactly MAX_W wide so nothing is clipped.
-        win.setSize(MAX_W + 28, win.height)   // +28 = 14px left + 14px right padding
+        // Force exact width.
+        win.setSize(MAX_W, win.height)
         return win
     }
 
-    /** A JLabel that wraps text inside a max width using HTML. */
-    private fun wrappedLabel(text: String, mono: Boolean, fg: Color, sizePx: Float): JLabel {
+    private fun rowPanel(): JPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.LINE_AXIS)
+        isOpaque = false
+        alignmentX = Component.LEFT_ALIGNMENT
+    }
+
+    /**
+     * JTextArea-based wrapped block. Honours its set width — unlike CSS-in-JLabel,
+     * which Swing's BasicHTML often clamps to the parent's allotted size.
+     */
+    private fun wrappedTextArea(text: String, widthPx: Int, fg: Color, sizePx: Float): JTextArea {
+        return JTextArea(text).apply {
+            isEditable = false
+            isOpaque = false
+            lineWrap = true
+            wrapStyleWord = true
+            background = Color(0, 0, 0, 0)
+            foreground = fg
+            font = Font(Font.SANS_SERIF, Font.PLAIN, sizePx.toInt())
+            border = null
+            margin = Insets(0, 0, 0, 0)
+            alignmentX = Component.LEFT_ALIGNMENT
+            // Key: clamp width so JTextArea calculates its own line-wrapped height.
+            size = Dimension(widthPx, Short.MAX_VALUE.toInt())
+            preferredSize = Dimension(widthPx, preferredSize.height)
+            maximumSize  = Dimension(widthPx, Int.MAX_VALUE)
+        }
+    }
+
+    /** A JLabel that wraps text inside a max width using HTML. (Kept for callers; unused.) */
+    @Suppress("unused")
+    private fun wrappedLabel(
+        text: String, mono: Boolean, fg: Color, sizePx: Float,
+        widthOverride: Int = -1,
+    ): JLabel {
         val escaped = text
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\n", "<br/>")
+        val innerW = if (widthOverride > 0) widthOverride else MAX_W - 32
         val css = if (mono)
-            "font-family:'JetBrains Mono','Menlo',monospace;font-size:${sizePx.toInt()}px;width:${MAX_W - 30}px;line-height:1.45;"
+            "font-family:'JetBrains Mono','Menlo',monospace;font-size:${sizePx.toInt()}px;width:${innerW}px;line-height:1.55;"
         else
-            "font-size:${sizePx.toInt()}px;width:${MAX_W - 30}px;line-height:1.45;"
+            "font-size:${sizePx.toInt()}px;width:${innerW}px;line-height:1.5;"
         return JLabel("<html><div style='$css'>$escaped</div></html>").apply {
             foreground = fg
             alignmentX = Component.LEFT_ALIGNMENT
