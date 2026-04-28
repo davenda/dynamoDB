@@ -5,7 +5,6 @@ import com.intellij.openapi.project.Project
 import javax.swing.event.MouseInputAdapter
 import javax.swing.JWindow
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.util.ui.JBUI
 import com.yourplugin.dynamodb.services.DynamoConnectionRegistry
 import com.yourplugin.dynamodb.services.TableSchemaService
 import kotlinx.coroutines.*
@@ -262,6 +261,45 @@ class SidebarPanel(
         }
     }
 
+    /**
+     * Trash-can icon mirroring the HTML mock's `I.trash` SVG path:
+     *   M3 4h10  (lid line)
+     *   M5 4l1 9h4l1-9   (bin sides + bottom)
+     *   M6.5 4V2.5h3V4   (handle)
+     */
+    private class TrashIcon(var tint: Color) : Icon {
+        override fun getIconWidth()  = 16
+        override fun getIconHeight() = 16
+        override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+            val g2 = (g as Graphics2D).create() as Graphics2D
+            g2.translate(x, y)
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
+            g2.color = tint
+            g2.stroke = BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+
+            // Lid
+            g2.draw(java.awt.geom.Line2D.Double(3.0, 4.0, 13.0, 4.0))
+            // Bin sides + bottom
+            val bin = Path2D.Double().apply {
+                moveTo(5.0, 4.0)
+                lineTo(6.0, 13.0)
+                lineTo(10.0, 13.0)
+                lineTo(11.0, 4.0)
+            }
+            g2.draw(bin)
+            // Handle
+            val handle = Path2D.Double().apply {
+                moveTo(6.5, 4.0)
+                lineTo(6.5, 2.5)
+                lineTo(9.5, 2.5)
+                lineTo(9.5, 4.0)
+            }
+            g2.draw(handle)
+            g2.dispose()
+        }
+    }
+
     /** (#24, #30) Selected/active background painted with a 2px accent left rail. */
     private fun rowBg(g: Graphics, w: Int, h: Int, fill: Color, leftRail: Boolean,
                       indent: Int) {
@@ -456,7 +494,13 @@ class SidebarPanel(
      */
     private fun errorRow(message: String, connNode: DefaultMutableTreeNode): JPanel {
         val hint = ActionableError.classify(message)
-        return JPanel(BorderLayout()).apply {
+        // Override getPreferredSize() so BoxLayout Y_AXIS sees width=0 from this row
+        // and does NOT inflate listPanel's preferred width (which would push EAST
+        // labels off-screen on every other row). The actual layout width is still
+        // driven by the container's real width via maximumSize = Int.MAX_VALUE.
+        return object : JPanel(BorderLayout()) {
+            override fun getPreferredSize() = Dimension(0, super.getPreferredSize().height)
+        }.apply {
             isOpaque = false
             border = BorderFactory.createEmptyBorder(6, 22, 6, 8)
             maximumSize = Dimension(Int.MAX_VALUE, 44)
@@ -483,7 +527,11 @@ class SidebarPanel(
                         foreground = DColors.bad
                         alignmentX = Component.LEFT_ALIGNMENT
                     })
-                    add(JLabel(truncateMessage(message)).apply {
+                    // Use HTML with a fixed pixel width so this label wraps rather than
+                    // reporting a huge preferred width that would expand the container.
+                    val escaped = truncateMessage(message)
+                        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    add(JLabel("<html><div style='width:160px'>$escaped</div></html>").apply {
                         font = font.deriveFont(Font.PLAIN, 11f)
                         foreground = DColors.fg3
                         alignmentX = Component.LEFT_ALIGNMENT
@@ -715,7 +763,11 @@ class SidebarPanel(
     private val deleteTableBtn: JButton by lazy { mutableListOf<JButton>().let { JButton() } }
 
     private fun buildTwToolbar(): JComponent {
-        val deleteBtn = twBtn(AllIcons.General.Remove, "Delete table") { onDeleteTable() }
+        val deleteIcon = TrashIcon(DColors.bad)
+        val deleteBtn  = twBtn(deleteIcon, "Delete table") { onDeleteTable() }.apply {
+            // keep red icon in both states; Swing dims opacity when disabled automatically
+            disabledIcon = deleteIcon
+        }
         deleteBtn.isEnabled = false   // (#10) disabled until activeTable != null
 
         // Re-enable based on active selection — repaint via list rebuild.
@@ -751,8 +803,6 @@ class SidebarPanel(
             add(twBtn(AllIcons.Actions.NewFolder,   "Create table")      { onCreateTable() })
             add(Box.createHorizontalStrut(2))
             add(deleteBtn)                                                   // #10
-            add(Box.createHorizontalGlue())
-            add(twBtn(AllIcons.Actions.Collapseall, "Collapse all")      { collapseAll() })
         }
     }
 

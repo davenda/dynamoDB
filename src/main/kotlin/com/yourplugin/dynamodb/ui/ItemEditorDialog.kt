@@ -9,6 +9,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.*
 import javax.swing.table.DefaultTableModel
 
@@ -35,6 +37,29 @@ class ItemEditorDialog(
     private val table = JBTable(tableModel).apply {
         rowHeight = 24
         autoResizeMode = JTable.AUTO_RESIZE_ALL_COLUMNS
+        addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent)  { if (e.isPopupTrigger) showAttrMenu(e) }
+            override fun mouseReleased(e: MouseEvent) { if (e.isPopupTrigger) showAttrMenu(e) }
+            private fun showAttrMenu(e: MouseEvent) {
+                val row = rowAtPoint(e.point).takeIf { it >= 0 } ?: return
+                setRowSelectionInterval(row, row)
+                val attr = tableModel.getValueAt(row, 0) as String
+                val menu = JPopupMenu()
+                val deleteItem = JMenuItem("Delete attribute").apply {
+                    foreground = java.awt.Color(200, 50, 50)
+                    isEnabled  = attr !in pkKeys
+                    addActionListener {
+                        if (attr in pkKeys) {
+                            Messages.showWarningDialog("Cannot remove key attribute '$attr'.", "Warning")
+                        } else {
+                            tableModel.removeRow(row)
+                        }
+                    }
+                }
+                menu.add(deleteItem)
+                menu.show(this@apply, e.x, e.y)
+            }
+        })
     }
 
     private val deleteBtn = JButton("Delete Item").apply {

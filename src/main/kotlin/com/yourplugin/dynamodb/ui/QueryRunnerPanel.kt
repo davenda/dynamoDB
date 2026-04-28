@@ -17,8 +17,11 @@ import software.amazon.awssdk.services.dynamodb.model.*
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.geom.Path2D
 import java.io.File
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import javax.swing.*
 import javax.swing.border.MatteBorder
 import javax.swing.event.DocumentEvent
@@ -166,11 +169,11 @@ class QueryRunnerPanel(
     private val firstBtn    = ijBtn(AllIcons.Actions.Play_first,    "First page")   { goToFirstPage() }
     private val prevBtn     = ijBtn(AllIcons.Actions.Back,          "Prev page")    { goToPage(currentPage - 1) }
     private val nextBtn     = ijBtn(AllIcons.Actions.Forward,       "Next page")    { goToPage(currentPage + 1) }
-    private val lastBtn     = ijBtn(AllIcons.Actions.Play_last,     "Last page")    { goToNextAvailable() }
+    private val lastBtn     = ijBtn(AllIcons.Actions.Play_last,     "Last page")    { goToLastKnownPage() }
     private val refreshBtn  = ijBtn(AllIcons.Actions.Refresh,       "Reload")       { execute() }
     private val addRowBtn   = ijBtn(AllIcons.General.Add,           "Add row")      { addRow() }
     private val deleteRowBtn= ijBtn(AllIcons.General.Remove,        "Delete selected rows") { batchDelete() }
-    private val exportBtn   = ijBtn(AllIcons.ToolbarDecorator.Export,"Export results") { showExportDialog() }
+    private val exportBtn   = ijBtn(DownArrowIcon, "Download selected rows as JSON") { exportSelectedJson() }
     private val moreBtn     = ijBtn(AllIcons.Actions.More,           "More options")   { showMoreMenu() }
 
     private val pageSizeBtn = object : JButton("$currentPageSize rows  ▾") {
@@ -234,12 +237,7 @@ class QueryRunnerPanel(
                     inspector.showItem(item, cachedSchema)
                     if (!inspectorVisible) showInspector()
                 }
-                if (e.clickCount == 2) openItemEditor(item)
             }
-        })
-        resultsTable.addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(e: MouseEvent)  { if (e.isPopupTrigger) showContextMenu(e) }
-            override fun mouseReleased(e: MouseEvent) { if (e.isPopupTrigger) showContextMenu(e) }
         })
 
         // Filter bar live filter
@@ -302,8 +300,7 @@ class QueryRunnerPanel(
         add(btnGroup(refreshBtn));                                        add(gap(6))
         add(btnGroup(addRowBtn, deleteRowBtn))
         add(Box.createHorizontalGlue())
-        add(btnGroup(exportBtn));  add(gap(4))
-        add(moreBtn);              add(gap(6))
+        add(btnGroup(exportBtn));  add(gap(6))
     }
 
     /** Wraps buttons in a rounded-rect group pill (prototype toolbar style). */
@@ -559,8 +556,10 @@ class QueryRunnerPanel(
 
     private fun goToFirstPage() = goToPage(1)
 
-    private fun goToNextAvailable() {
-        if (nextBtn.isEnabled) goToPage(currentPage + 1)
+    /** Jump to the furthest page whose start-key we already have cached. */
+    private fun goToLastKnownPage() {
+        val last = pageKeys.size   // pageKeys[0..n] covers pages 1..n+1; last known page = pageKeys.size
+        if (last > currentPage) goToPage(last)
     }
 
     private fun loadCurrentPage() {
@@ -613,10 +612,11 @@ class QueryRunnerPanel(
     }
 
     private fun updateNavButtons(hasNext: Boolean) {
-        firstBtn.isEnabled    = currentPage > 1
-        prevBtn.isEnabled     = currentPage > 1
-        nextBtn.isEnabled     = hasNext
-        lastBtn.isEnabled     = false   // indeterminate without full scan
+        firstBtn.isEnabled     = currentPage > 1
+        prevBtn.isEnabled      = currentPage > 1
+        nextBtn.isEnabled      = hasNext
+        // enabled when we've cached start-keys for pages beyond the current one
+        lastBtn.isEnabled      = pageKeys.size > currentPage
         deleteRowBtn.isEnabled = rawItems.isNotEmpty()
     }
 
@@ -931,32 +931,66 @@ class QueryRunnerPanel(
         scope.launch {
             runCatching {
                 val client = registry.clientFor(connectionName)
-                val key    = buildMap {
+                val key = buildMap {
                     put(schema.partitionKey.name, updated[schema.partitionKey.name]!!)
                     schema.sortKey?.name?.let { put(it, updated[it]!!) }
                 }
-                val toUpdate = updated.filterKeys { it !in key }
-                if (toUpdate.isEmpty()) return@runCatching
-                val names  = toUpdate.keys.mapIndexed { i, k -> "#a$i" to k }.toMap()
-                val values = toUpdate.entries.mapIndexed { i, (_, v) -> ":v$i" to v }.toMap()
-                val expr   = names.keys.zip(values.keys).joinToString(", ") { (n, v) -> "$n = $v" }
-                client.updateItem(UpdateItemRequest.builder()
-                    .tableName(tableName).key(key)
-                    .updateExpression("SET $expr")
-                    .expressionAttributeNames(names)
-                    .expressionAttributeValues(values)
-                    .build()).await()
-            }.onSuccess  {
+
+                // Attributes to set/update (non-key fields present in updated)
+                val toSet    = updated.filterKeys { it !in key }
+                // Attributes to remove (present in original, absent in updated, not a key)
+                val toRemove = original.keys.filter { it !in key && it !in updated }
+
+                if (toSet.isEmpty() && toRemove.isEmpty()) return@runCatching
+
+                val exprNames  = mutableMapOf<String, String>()
+                val exprValues = mutableMapOf<String, AttributeValue>()
+
+                val setParts = toSet.entries.mapIndexed { i, (k, v) ->
+                    exprNames["#a$i"] = k
+                    exprValues[":v$i"] = v
+                    "#a$i = :v$i"
+                }
+                val removeParts = toRemove.mapIndexed { i, k ->
+                    exprNames["#r$i"] = k
+                    "#r$i"
+                }
+
+                val expr = buildString {
+                    if (setParts.isNotEmpty())    append("SET ${setParts.joinToString(", ")}")
+                    if (removeParts.isNotEmpty()) {
+                        if (isNotEmpty()) append(" ")
+                        append("REMOVE ${removeParts.joinToString(", ")}")
+                    }
+                }
+
+                client.updateItem(
+                    UpdateItemRequest.builder()
+                        .tableName(tableName).key(key)
+                        .updateExpression(expr)
+                        .expressionAttributeNames(exprNames)
+                        .apply { if (exprValues.isNotEmpty()) expressionAttributeValues(exprValues) }
+                        .build()
+                ).await()
+            }.onSuccess {
                 withContext(Dispatchers.Swing) {
-                    val changes = updated.entries.mapNotNull { (k, v) ->
-                        val old = original[k]?.displayValue()
-                        val new = v.displayValue()
-                        if (old != new) "$k: $old → $new" else null
+                    val changes = buildList {
+                        updated.forEach { (k, v) ->
+                            val old = original[k]?.displayValue()
+                            val new = v.displayValue()
+                            if (old != new) add("$k: $old → $new")
+                        }
+                        original.keys.filter { it !in updated }.forEach { add("$it: removed") }
                     }
                     recordHistory(original, "Edited", changes)
                     execute()
+                    inspector.showItem(updated, cachedSchema)
                 }
-            }.onFailure  { ex -> withContext(Dispatchers.Swing) { Messages.showErrorDialog(project, ex.message, "Save Failed") } }
+            }.onFailure { ex ->
+                withContext(Dispatchers.Swing) {
+                    Messages.showErrorDialog(project, ex.message ?: "Unknown error", "Save Failed")
+                }
+            }
         }
     }
 
@@ -1003,22 +1037,101 @@ class QueryRunnerPanel(
 
     // ── Export ────────────────────────────────────────────────────────────────
 
-    fun showExportDialog() {
-        if (rawItems.isEmpty()) return
-        val chooser = JFileChooser().apply {
-            dialogTitle = "Export Results"
-            addChoosableFileFilter(FileNameExtensionFilter("JSON files", "json"))
-            addChoosableFileFilter(FileNameExtensionFilter("CSV files",  "csv"))
-            fileFilter = choosableFileFilters[0]
-            selectedFile = File("$tableName-results.json")
+    /** Down-arrow icon used for the JSON download button. */
+    private object DownArrowIcon : Icon {
+        override fun getIconWidth()  = 16
+        override fun getIconHeight() = 16
+        override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+            val g2 = (g as Graphics2D).create() as Graphics2D
+            g2.translate(x, y)
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color  = DColors.fg1
+            g2.stroke = BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            // shaft
+            g2.draw(java.awt.geom.Line2D.Double(8.0, 2.5, 8.0, 10.5))
+            // arrowhead
+            val head = Path2D.Double().apply {
+                moveTo(4.5, 7.5); lineTo(8.0, 11.5); lineTo(11.5, 7.5)
+            }
+            g2.draw(head)
+            // tray line
+            g2.draw(java.awt.geom.Line2D.Double(3.5, 13.5, 12.5, 13.5))
+            g2.dispose()
         }
-        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return
-        runCatching {
-            val file = chooser.selectedFile
-            if (file.name.endsWith(".csv")) ResultExporter.exportCsv(rawItems, file)
-            else ResultExporter.exportJson(rawItems, file)
-        }.onFailure { ex -> Messages.showErrorDialog(project, ex.message, "Export Failed") }
     }
+
+    /**
+     * Saves selected rows (or all rows if nothing is selected) filtered to the
+     * currently visible columns as a JSON array into ~/Downloads/.
+     */
+    fun exportSelectedJson() {
+        if (rawItems.isEmpty()) return
+
+        // Rows: selected or all
+        val selectedViewRows = resultsTable.selectedRows
+        val modelRows = if (selectedViewRows.isEmpty())
+            (0 until resultsTable.rowCount).map { resultsTable.convertRowIndexToModel(it) }
+        else
+            selectedViewRows.map { resultsTable.convertRowIndexToModel(it) }
+        val items = modelRows.mapNotNull { rawItems.getOrNull(it) }
+
+        // Columns: visible columns only, excluding the row-number "#" column
+        val visibleCols = (0 until resultsTable.columnCount)
+            .map { resultsTable.getColumnName(it) }
+            .filter { it != "#" }
+
+        // Build JSON
+        val json = buildString {
+            append("[\n")
+            items.forEachIndexed { i, item ->
+                append("  {\n")
+                val entries = visibleCols.mapNotNull { col -> item[col]?.let { col to it } }
+                entries.forEachIndexed { j, (k, v) ->
+                    append("    \"$k\": ${v.toJsonValue()}")
+                    if (j < entries.size - 1) append(",")
+                    append("\n")
+                }
+                append("  }")
+                if (i < items.size - 1) append(",")
+                append("\n")
+            }
+            append("]")
+        }
+
+        // Save to ~/Downloads/
+        runCatching {
+            val ts   = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+            val dir  = java.nio.file.Paths.get(System.getProperty("user.home"), "Downloads").toFile()
+                .also { it.mkdirs() }
+            val file = File(dir, "$tableName-$ts.json")
+            file.writeText(json)
+            Messages.showInfoMessage(
+                project,
+                "Saved ${items.size} row(s) → ${file.absolutePath}",
+                "Export Complete"
+            )
+        }.onFailure { ex ->
+            Messages.showErrorDialog(project, ex.message ?: "Unknown error", "Export Failed")
+        }
+    }
+
+    /** Proper JSON serialisation of an AttributeValue. */
+    private fun AttributeValue.toJsonValue(): String = when {
+        s()    != null -> "\"${s()!!.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+        n()    != null -> n()!!
+        bool() != null -> bool().toString()
+        nul()  == true -> "null"
+        ss().isNotEmpty() -> ss().joinToString(", ", "[", "]") { "\"$it\"" }
+        ns().isNotEmpty() -> ns().joinToString(", ", "[", "]")
+        l().isNotEmpty()  -> l().joinToString(", ", "[", "]") { it.toJsonValue() }
+        m().isNotEmpty()  -> m().entries.joinToString(", ", "{", "}") {
+            "\"${it.key}\": ${it.value.toJsonValue()}"
+        }
+        b() != null -> "\"<Binary>\""
+        else        -> "null"
+    }
+
+    fun showExportDialog() = exportSelectedJson()   // kept for "more" menu compatibility
 
     // ── Clear ─────────────────────────────────────────────────────────────────
 
