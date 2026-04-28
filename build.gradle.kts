@@ -26,9 +26,8 @@ val coroutinesVersion = "1.8.1"
 dependencies {
     // IntelliJ Platform
     intellijPlatform {
-        local("/Applications/IntelliJ IDEA.app")   // use the installed 2026.1 Ultimate
+        intellijIdeaCommunity("2024.3.2")
         bundledPlugin("com.intellij.java")
-        bundledPlugin("com.intellij.database")      // DatabaseIcons for tree node icons
         // com.intellij.ml.llm is optional (Ultimate-only); declared in plugin.xml, not needed here
     }
 
@@ -124,8 +123,9 @@ tasks {
         targetRoot = "src/main/gen"
         pathToParser = "com/yourplugin/dynamodb/language/parser/DynamoQueryParser.java"
         pathToPsiRoot = "com/yourplugin/dynamodb/language/psi"
-        // PathManager is required by newer platform internals used during parser generation.
-        systemProperty("idea.home.path", "/Applications/IntelliJ IDEA.app/Contents")
+        val ideHome = providers.environmentVariable("IDEA_HOME")
+            .orElse("/root/.gradle/caches/8.14.3/transforms/a2f3ff17fb3fc0b0a4df40c2b19e6f0f/transformed/ideaIC-2024.3.2")
+        systemProperty("idea.home.path", ideHome.get())
         purgeOldFiles = true
     }
 
