@@ -20,13 +20,22 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>1.1.0</b>
+        <ul>
+            <li>Redesigned sidebar with a new UI</li>
+            <li>Connection error shown inline with retry button and hover tooltip explaining the cause</li>
+            <li>Region label and status dot always visible on connection rows</li>
+            <li>Row inspector panel: single-click opens inspector, PK in blue, SK in yellow, all other attributes in grey</li>
+            <li>Item editor: delete individual attributes via right-click, deleted attributes correctly removed from DynamoDB</li>
+            <li>Filter bar: live filter on current page; press Enter to scan all pages server-side</li>
+            <li>Download selected rows as JSON directly to ~/Downloads/</li>
+        </ul>
         <b>1.0.1</b>
         <ul>
             <li>Added Native DynamoDB Query mode with radio toggle (SQL / DynamoDB Query)</li>
             <li>Support for FilterExpression, KeyConditionExpression, attribute names/values</li>
-            <li>Fixed SQL WHERE clause support (e.g. city = Tampa style queries)</li>
-            <li>Fixed pagination: respects LIMIT clause, Next button greys out when limit reached</li>
-            <li>Fixed Rows Per Page selector</li>
+            <li>Fixed SQL WHERE clause support</li>
+            <li>Fixed pagination and Rows Per Page selector</li>
         </ul>
         <b>1.0.0</b>
         <ul>

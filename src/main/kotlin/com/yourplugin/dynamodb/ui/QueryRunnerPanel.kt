@@ -209,19 +209,10 @@ class QueryRunnerPanel(
     }
 
     // Must be before init{} — used by buildFilterBar() which is called from init
-    private val filterClearBtn = object : JButton("×") {
-        init {
-            font               = font.deriveFont(Font.PLAIN, 13f)
-            foreground         = DColors.fg3
-            isBorderPainted    = false
-            isContentAreaFilled = false
-            isFocusPainted     = false
-            preferredSize      = Dimension(22, 22)
-            maximumSize        = Dimension(22, 22)
-            minimumSize        = Dimension(22, 22)
-            isVisible          = false
-            addActionListener  { filterInput.text = ""; isVisible = false }
-        }
+    private val searchAllHint = JLabel("↵ search all pages").apply {
+        font      = font.deriveFont(Font.PLAIN, 10.5f)
+        foreground = DColors.fg3
+        isVisible  = false
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -424,15 +415,21 @@ class QueryRunnerPanel(
         maximumSize   = Dimension(Int.MAX_VALUE, 38)
         minimumSize   = Dimension(0, 38)
 
-        // Show/hide clear button as user types
+        // Show/hide hint as user types
         filterInput.document.addDocumentListener(object : DocumentListener {
-            override fun insertUpdate(e: DocumentEvent)  { filterClearBtn.isVisible = filterInput.text.isNotEmpty() }
-            override fun removeUpdate(e: DocumentEvent)  { filterClearBtn.isVisible = filterInput.text.isNotEmpty() }
+            override fun insertUpdate(e: DocumentEvent)  { searchAllHint.isVisible = filterInput.text.isNotEmpty() }
+            override fun removeUpdate(e: DocumentEvent)  { searchAllHint.isVisible = filterInput.text.isNotEmpty() }
             override fun changedUpdate(e: DocumentEvent) {}
         })
 
-        filterInput.alignmentY     = Component.CENTER_ALIGNMENT
-        filterClearBtn.alignmentY  = Component.CENTER_ALIGNMENT
+        // Enter → full-table scan
+        filterInput.addActionListener {
+            val q = filterInput.text.trim()
+            if (q.isNotEmpty()) scanAllWithFilter(q)
+        }
+
+        filterInput.alignmentY    = Component.CENTER_ALIGNMENT
+        searchAllHint.alignmentY  = Component.CENTER_ALIGNMENT
 
         add(JLabel(AllIcons.Actions.Search).apply {
             foreground = DColors.accent; alignmentY = Component.CENTER_ALIGNMENT })
@@ -445,11 +442,9 @@ class QueryRunnerPanel(
             alignmentY = Component.CENTER_ALIGNMENT })
         add(Box.createHorizontalStrut(8))
         add(filterInput)
-        add(Box.createHorizontalStrut(4))
-        add(filterClearBtn)
-        add(Box.createHorizontalStrut(6))
-        add(buildApplyBadge())
-        add(Box.createHorizontalStrut(4))
+        add(Box.createHorizontalStrut(8))
+        add(searchAllHint)
+        add(Box.createHorizontalStrut(8))
     }
 
     /** "⌘↵ apply" keyboard-badge hint shown at the right of the filter bar. */
@@ -650,34 +645,17 @@ class QueryRunnerPanel(
             }
 
             return when {
-                av == null -> defaultCell(value?.toString() ?: "", bg, DColors.fg3)
-
-                av.bool() != null -> boolPillCell(av.bool()!!, bg, isSelected)
-
                 colName != null && colName == cachedSchema?.partitionKey?.name ->
-                    defaultCell(av.displayValue(), bg, DColors.accent).also {
+                    defaultCell(av?.displayValue() ?: "", bg, DColors.accent).also {
                         (it as? JLabel)?.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
                     }
 
-                av.n() != null -> defaultCell(av.n()!!, bg, DColors.synNum).also {
-                    (it as? JLabel)?.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-                }
-
-                av.s() != null && av.s()!!.matches(Regex("""\d{4}-\d{2}-\d{2}T.*""")) -> {
-                    val rel = relativeTime(av.s()!!)
-                    defaultCell("$rel  ${av.s()!!.take(10)}", bg, DColors.fg2).also {
-                        (it as? JLabel)?.font = it.font.deriveFont(11.5f)
+                colName != null && colName == cachedSchema?.sortKey?.name ->
+                    defaultCell(av?.displayValue() ?: "", bg, DColors.warn).also {
+                        (it as? JLabel)?.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
                     }
-                }
 
-                av.m().isNotEmpty() -> defaultCell("{Map: ${av.m().size}}", bg, DColors.fg3).also {
-                    (it as? JLabel)?.font = it.font.deriveFont(Font.ITALIC, 11.5f)
-                }
-                av.l().isNotEmpty()  -> defaultCell("[List: ${av.l().size}]", bg, DColors.fg3).also {
-                    (it as? JLabel)?.font = it.font.deriveFont(Font.ITALIC, 11.5f)
-                }
-
-                else -> defaultCell(av.displayValue(), bg, DColors.fg0)
+                else -> defaultCell(av?.displayValue() ?: value?.toString() ?: "", bg, DColors.fg2)
             }
         }
 
@@ -793,13 +771,17 @@ class QueryRunnerPanel(
                     return base
                 }
 
-                // PK column — render as panel with a badge, properly centred
-                if (colName == pkName) {
+                // PK / SK columns — render as panel with a coloured badge
+                val skName = cachedSchema?.sortKey?.name
+                if (colName == pkName || colName == skName) {
+                    val isKey   = colName == pkName
+                    val badgeTxt = if (isKey) "PK" else "SK"
+                    val keyColor = if (isKey) DColors.accent else DColors.warn
                     return JPanel().apply {
                         layout = BoxLayout(this, BoxLayout.LINE_AXIS)
                         background = DColors.bg2; isOpaque = true
                         border = BorderFactory.createEmptyBorder(0, 8, 0, 8)
-                        add(object : JLabel("PK") {
+                        add(object : JLabel(badgeTxt) {
                             override fun paintComponent(g: Graphics) {
                                 val g2 = g as Graphics2D
                                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -807,13 +789,13 @@ class QueryRunnerPanel(
                                 super.paintComponent(g)
                             }
                         }.apply {
-                            font = base.font.deriveFont(Font.BOLD, 9f); foreground = DColors.accent
+                            font = base.font.deriveFont(Font.BOLD, 9f); foreground = keyColor
                             border = BorderFactory.createEmptyBorder(1, 3, 1, 3); isOpaque = false
                             alignmentY = Component.CENTER_ALIGNMENT
                         })
                         add(Box.createHorizontalStrut(4))
                         add(JLabel("$colName ↕").apply {
-                            font = base.font; foreground = DColors.accent
+                            font = base.font; foreground = keyColor
                             alignmentY = Component.CENTER_ALIGNMENT
                         })
                     }
@@ -853,6 +835,79 @@ class QueryRunnerPanel(
         val text = filterInput.text.trim()
         rowSorter?.rowFilter = if (text.isEmpty()) null else
             javax.swing.RowFilter.regexFilter("(?i)${Regex.escape(text)}")
+    }
+
+    /**
+     * Full-table scan — reads every page from DynamoDB and keeps items whose
+     * any attribute value contains [query] (case-insensitive).
+     * Triggered by pressing Enter in the filter field.
+     */
+    private fun scanAllWithFilter(query: String) {
+        updateNavButtons(hasNext = false)
+        rowCountPill.text = " scanning… "
+        timingPill.text   = " — "
+        rcuPill.text      = ""
+
+        scope.launch {
+            val t0       = System.currentTimeMillis()
+            val matched  = mutableListOf<Map<String, AttributeValue>>()
+            var lastKey  : Map<String, AttributeValue>? = null
+            var totalRcu = 0.0
+
+            runCatching {
+                do {
+                    val resp = registry.clientFor(connectionName).scan(
+                        ScanRequest.builder()
+                            .tableName(tableName)
+                            .returnConsumedCapacity(ReturnConsumedCapacity.TOTAL)
+                            .apply { lastKey?.let { exclusiveStartKey(it) } }
+                            .build()
+                    ).await()
+
+                    totalRcu += resp.consumedCapacity()?.capacityUnits() ?: 0.0
+
+                    resp.items().forEach { item ->
+                        val hit = item.values.any { av ->
+                            av.s()?.contains(query, ignoreCase = true) == true ||
+                            av.n()?.contains(query, ignoreCase = true) == true
+                        }
+                        if (hit) matched.add(item)
+                    }
+
+                    lastKey = resp.lastEvaluatedKey().takeIf { it.isNotEmpty() }
+
+                    val soFar = matched.size
+                    withContext(Dispatchers.Swing) { rowCountPill.text = " $soFar found… " }
+                } while (lastKey != null)
+            }.onFailure { ex ->
+                withContext(Dispatchers.Swing) {
+                    Messages.showErrorDialog(project, ex.message ?: "Unknown error", "Search Failed")
+                    rowCountPill.text = " — "
+                }
+                return@launch
+            }
+
+            val ms = System.currentTimeMillis() - t0
+
+            withContext(Dispatchers.Swing) {
+                rawItems.clear()
+                tableModel.rowCount    = 0
+                tableModel.columnCount = 0
+                rawItems += matched
+                currentPage = 1   // row numbers start at 1
+                if (matched.isNotEmpty()) renderTableResults(matched)
+
+                // Pagination doesn't apply to search results
+                firstBtn.isEnabled = false
+                prevBtn.isEnabled  = false
+                nextBtn.isEnabled  = false
+                lastBtn.isEnabled  = false
+
+                rowCountPill.text = " ${matched.size} rows "
+                timingPill.text   = " ● ${ms}ms "
+                rcuPill.text      = " ${"%.1f".format(totalRcu)} RCU "
+            }
+        }
     }
 
     // ── Error display ─────────────────────────────────────────────────────────

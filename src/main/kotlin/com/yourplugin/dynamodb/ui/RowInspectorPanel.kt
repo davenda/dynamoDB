@@ -208,34 +208,20 @@ class RowInspectorPanel(
                 if (isSk) { add(Box.createHorizontalStrut(3)); add(keyPill("SK", DColors.warn,   DColors.bg1)) }
             }
             add(left, BorderLayout.WEST)
-            add(semanticLabel(av, name, isPk), BorderLayout.CENTER)
+            add(semanticLabel(av, isPk, isSk), BorderLayout.CENTER)
         }
     }
 
-    private fun semanticLabel(av: AttributeValue, name: String, isPk: Boolean): JComponent {
-        return when {
-            av.bool() != null -> boolPill(av.bool()!!)
-            av.n()    != null -> JLabel(av.n()).apply {
-                font = Font(Font.MONOSPACED, Font.PLAIN, 11); foreground = DColors.synNum
-            }
-            isPk -> JLabel(av.s() ?: av.displayValue()).apply {
-                font = Font(Font.MONOSPACED, Font.PLAIN, 11); foreground = DColors.accent
-            }
-            av.s() != null && av.s()!!.matches(Regex("""\d{4}-\d{2}-\d{2}T.*""")) -> {
-                val rel = relativeTime(av.s()!!)
-                JLabel("${av.s()!!.take(10)} · $rel").apply {
-                    font = font.deriveFont(11f); foreground = DColors.fg1
-                }
-            }
-            av.m().isNotEmpty() -> JLabel("{Map: ${av.m().size} keys}").apply {
-                foreground = DColors.fg3; font = font.deriveFont(Font.ITALIC, 11f)
-            }
-            av.l().isNotEmpty() -> JLabel("[List: ${av.l().size} items]").apply {
-                foreground = DColors.fg3; font = font.deriveFont(Font.ITALIC, 11f)
-            }
-            else -> JLabel(av.displayValue()).apply {
-                foreground = DColors.fg0; font = font.deriveFont(11f)
-            }
+    private fun semanticLabel(av: AttributeValue, isPk: Boolean, isSk: Boolean): JComponent {
+        val (color, font) = when {
+            isPk -> DColors.accent to Font(Font.MONOSPACED, Font.PLAIN, 11)
+            isSk -> DColors.warn   to Font(Font.MONOSPACED, Font.PLAIN, 11)
+            else -> DColors.fg2    to Font(Font.SANS_SERIF,  Font.PLAIN, 11)
+        }
+        return JLabel(av.displayValue()).apply {
+            foreground = color
+            this.font  = font
+            border     = BorderFactory.createEmptyBorder(0, 8, 0, 8)
         }
     }
 

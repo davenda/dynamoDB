@@ -10,7 +10,7 @@ plugins {
 group = "com.yourplugin"
 
 val buildNumber: String = project.findProperty("buildNumber")?.toString() ?: "1"
-version = "1.0.$buildNumber"
+version = "1.1.0"
 
 repositories {
     mavenCentral()
@@ -170,7 +170,7 @@ tasks {
             val propsFile = file("gradle.properties")
             val next = buildNumber.toInt() + 1
             propsFile.writeText(propsFile.readText().replace("buildNumber=$buildNumber", "buildNumber=$next"))
-            println("Build $version complete — next build will be 1.0.$next")
+            println("Build $version complete — next build will be 1.1.$next")
         }
     }
 
