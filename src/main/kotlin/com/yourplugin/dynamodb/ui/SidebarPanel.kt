@@ -2,6 +2,8 @@ package com.yourplugin.dynamodb.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.project.Project
+import javax.swing.event.MouseInputAdapter
+import javax.swing.JWindow
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.yourplugin.dynamodb.services.DynamoConnectionRegistry
@@ -55,6 +57,7 @@ class SidebarPanel(
         val label: String = "",
         val loading: Boolean = false,
         val error: Boolean = false,
+        val errorMessage: String? = null,
     )
     data class TableNode(val tableName: String, val connectionName: String, val itemCount: Long? = null)
 
@@ -161,7 +164,10 @@ class SidebarPanel(
             listPanel.add(connRow(connNode, ud))
 
             if (ud.name in expandedConns) {
-                if (visibleTables.isEmpty() && filter.isEmpty()) {
+                if (ud.error) {
+                    // Connection failed — show error row instead of "No tables"
+                    listPanel.add(errorRow(ud.errorMessage ?: "Connection failed", connNode))
+                } else if (visibleTables.isEmpty() && filter.isEmpty()) {
                     // (#38, design) italic empty-state row
                     listPanel.add(emptyRow())
                 } else {
@@ -444,6 +450,68 @@ class SidebarPanel(
         }, BorderLayout.WEST)
     }
 
+    /**
+     * Inline error row shown under a failed connection.
+     * Renders the warning glyph, the error message (truncated), and a Retry link.
+     */
+    private fun errorRow(message: String, connNode: DefaultMutableTreeNode): JPanel {
+        val hint = ActionableError.classify(message)
+        return JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = BorderFactory.createEmptyBorder(6, 22, 6, 8)
+            maximumSize = Dimension(Int.MAX_VALUE, 44)
+            alignmentX = Component.LEFT_ALIGNMENT
+            // Custom tooltip; built lazily on hover via PrettyTooltip
+            PrettyTooltip.install(this, message, hint)
+
+            add(JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.LINE_AXIS)
+                isOpaque = false
+                add(JLabel(AllIcons.General.BalloonError).apply {
+                    alignmentY = Component.TOP_ALIGNMENT
+                })
+                add(Box.createHorizontalStrut(6))
+
+                add(JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
+                    isOpaque = false
+                    alignmentY = Component.TOP_ALIGNMENT
+
+                    add(JLabel("Connection failed").apply {
+                        font = font.deriveFont(Font.PLAIN, 11.5f)
+                            .deriveFont(mapOf(java.awt.font.TextAttribute.WEIGHT to java.awt.font.TextAttribute.WEIGHT_MEDIUM))
+                        foreground = DColors.bad
+                        alignmentX = Component.LEFT_ALIGNMENT
+                    })
+                    add(JLabel(truncateMessage(message)).apply {
+                        font = font.deriveFont(Font.PLAIN, 11f)
+                        foreground = DColors.fg3
+                        alignmentX = Component.LEFT_ALIGNMENT
+                    })
+                    add(Box.createVerticalStrut(2))
+                    add(JLabel("<html><a href='#'>Retry</a></html>").apply {
+                        font = font.deriveFont(Font.PLAIN, 11f)
+                        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                        alignmentX = Component.LEFT_ALIGNMENT
+                        addMouseListener(object : MouseAdapter() {
+                            override fun mouseClicked(e: MouseEvent) {
+                                val ud = connNode.userObject as? ConnectionNode ?: return
+                                connNode.userObject = ConnectionNode(
+                                    ud.name, ud.region, label = ud.label, loading = true)
+                                treeModel.nodeChanged(connNode)
+                                rebuildList(searchField.text.trim())
+                                loadTables(connNode)
+                            }
+                        })
+                    })
+                })
+            }, BorderLayout.WEST)
+        }
+    }
+
+    private fun truncateMessage(s: String, max: Int = 80): String =
+        if (s.length <= max) s else s.take(max - 1) + "\u2026"
+
     /** (#40) mixed-case section divider rendered inline in the list. */
     private fun sectionHeader(text: String): JPanel = JPanel(BorderLayout()).apply {
         background = DColors.bg1
@@ -494,9 +562,13 @@ class SidebarPanel(
         scope.launch {
             val tables = runCatching {
                 TableSchemaService.listTables(registry.clientFor(conn.name))
-            }.getOrElse {
+            }.getOrElse { ex ->
+                val msg = ex.message?.takeIf { it.isNotBlank() }
+                    ?: ex.javaClass.simpleName
                 withContext(Dispatchers.Swing) {
-                    connNode.userObject = ConnectionNode(conn.name, conn.region, label = conn.label, error = true)
+                    connNode.userObject = ConnectionNode(
+                        conn.name, conn.region, label = conn.label,
+                        error = true, errorMessage = msg)
                     treeModel.nodeChanged(connNode)
                     rebuildList(searchField.text.trim())
                 }
@@ -745,3 +817,225 @@ class SidebarPanel(
             addActionListener   { action() }
         }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Actionable-error classifier
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maps a raw AWS / network exception message to a short, human-readable hint.
+ * Heuristic — runs case-insensitive substring matches in priority order.
+ */
+private object ActionableError {
+
+    data class Hint(val title: String, val steps: List<String>)
+
+    private val rules: List<Pair<Regex, Hint>> = listOf(
+        Regex("(?i)(ExpiredToken|token has expired|expired credentials)") to Hint(
+            "Credentials expired",
+            listOf("Run `aws sso login` (or refresh your STS token).",
+                "Then click Retry.")),
+        Regex("(?i)(InvalidSignature|signature.*does not match|SignatureDoesNotMatch)") to Hint(
+            "Invalid signature",
+            listOf("Check the access key & secret on this connection.",
+                "Verify your system clock — AWS rejects requests >5 min off.")),
+        Regex("(?i)(InvalidClientTokenId|UnrecognizedClient|InvalidAccessKeyId)") to Hint(
+            "Access key not recognised",
+            listOf("Confirm the AWS access-key ID is correct.",
+                "If you rotated keys recently, update this connection.")),
+        Regex("(?i)(AccessDenied|UnauthorizedOperation|not authorized to perform)") to Hint(
+            "Access denied",
+            listOf("This identity lacks `dynamodb:ListTables` on the region.",
+                "Add the permission to your IAM role/user.")),
+        Regex("(?i)(UnableToExecuteHttp|Connection refused|Connection.*timed out|connect timed out)") to Hint(
+            "Endpoint unreachable",
+            listOf("Check your network / VPN.",
+                "If using DynamoDB Local, confirm it's running on the configured port.")),
+        Regex("(?i)(UnknownHost|nodename nor servname|Name or service not known)") to Hint(
+            "Host not found",
+            listOf("DNS can't resolve the endpoint.",
+                "Check the region / endpoint override on this connection.")),
+        Regex("(?i)(SSL|certificate|PKIX|TrustAnchor)") to Hint(
+            "TLS / certificate problem",
+            listOf("Your JDK can't validate the endpoint certificate.",
+                "If you're behind a corporate proxy, install its CA cert into the JDK truststore.")),
+        Regex("(?i)(MissingRegion|region.*could not be determined)") to Hint(
+            "Region not set",
+            listOf("Edit this connection and set an explicit AWS region.")),
+        Regex("(?i)(ProfileNotFound|profile file cannot be null|profile.*not found)") to Hint(
+            "AWS profile not found",
+            listOf("The named profile isn't in `~/.aws/credentials`.",
+                "Create it, or pick a different profile in connection settings.")),
+        Regex("(?i)(Throttling|ThrottlingException|RequestLimitExceeded|ProvisionedThroughputExceeded)") to Hint(
+            "Throttled by AWS",
+            listOf("Wait a few seconds and click Retry.",
+                "If this happens often, increase table capacity or back off in your tooling.")),
+        Regex("(?i)ResourceNotFound") to Hint(
+            "Resource not found",
+            listOf("The table or index referenced doesn't exist in this region.")),
+    )
+
+    fun classify(message: String): Hint? = rules.firstOrNull { it.first.containsMatchIn(message) }?.second
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PrettyTooltip — custom-painted hover popup
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Custom tooltip rendered as a JWindow with a soft shadow, accent border,
+ * monospace error block and (optionally) a hint section.
+ */
+private object PrettyTooltip {
+
+    private const val MAX_W   = 400
+    private const val SHOW_MS = 350
+
+    fun install(comp: JComponent, message: String, hint: ActionableError.Hint?) {
+        // Disable Swing's default tooltip — we render our own.
+        comp.toolTipText = null
+        var window: JWindow? = null
+        var showTimer: javax.swing.Timer? = null
+
+        val handler = object : MouseInputAdapter() {
+            override fun mouseEntered(e: MouseEvent) {
+                showTimer?.stop()
+                showTimer = javax.swing.Timer(SHOW_MS) {
+                    val owner = SwingUtilities.getWindowAncestor(comp) ?: return@Timer
+                    val w = buildWindow(owner, message, hint)
+                    val pt = comp.locationOnScreen
+                    var x = pt.x
+                    var y = pt.y + comp.height + 6
+                    val screen = comp.graphicsConfiguration.bounds
+                    if (x + w.width > screen.x + screen.width)  x = screen.x + screen.width  - w.width - 8
+                    if (y + w.height > screen.y + screen.height) y = pt.y - w.height - 6
+                    w.setLocation(x, y)
+                    w.isVisible = true
+                    window = w
+                }.apply { isRepeats = false; start() }
+            }
+            override fun mouseExited(e: MouseEvent) {
+                showTimer?.stop()
+                window?.dispose(); window = null
+            }
+        }
+        comp.addMouseListener(handler)
+    }
+
+    private fun buildWindow(owner: Window, message: String, hint: ActionableError.Hint?): JWindow {
+        val win = JWindow(owner)
+        win.background = Color(0, 0, 0, 0)
+
+        val card = object : JPanel() {
+            override fun paintComponent(g: Graphics) {
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                // shadow
+                for (i in 0..6) {
+                    g2.color = Color(0, 0, 0, 12 - i)
+                    g2.fillRoundRect(2 - i / 2, 2 + i, width - 4 + i, height - 4 - i, 10, 10)
+                }
+                // surface
+                g2.color = DColors.bg2
+                g2.fillRoundRect(0, 0, width - 1, height - 1, 10, 10)
+                // 1px border
+                g2.color = DColors.line
+                g2.drawRoundRect(0, 0, width - 1, height - 1, 10, 10)
+                // accent rail
+                g2.color = DColors.bad
+                g2.fillRect(0, 8, 3, height - 16)
+            }
+        }.apply {
+            layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
+            isOpaque = false
+            border = BorderFactory.createEmptyBorder(12, 14, 12, 14)
+        }
+
+        // Header row — icon + title
+        card.add(JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.LINE_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(JLabel(AllIcons.General.BalloonError))
+            add(Box.createHorizontalStrut(8))
+            add(JLabel("Connection failed").apply {
+                font = font.deriveFont(Font.PLAIN, 13f)
+                    .deriveFont(mapOf(java.awt.font.TextAttribute.WEIGHT to java.awt.font.TextAttribute.WEIGHT_MEDIUM))
+                foreground = DColors.fg0
+            })
+        })
+        card.add(Box.createVerticalStrut(8))
+
+        // Error message — monospace, wrapped
+        card.add(wrappedLabel(message, mono = true, fg = DColors.fg2, sizePx = 11f).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+        })
+
+        if (hint != null) {
+            card.add(Box.createVerticalStrut(10))
+            card.add(JSeparator().apply {
+                foreground = DColors.line; alignmentX = Component.LEFT_ALIGNMENT
+                maximumSize = Dimension(Int.MAX_VALUE, 1)
+            })
+            card.add(Box.createVerticalStrut(10))
+
+            // Hint title — accent-coloured "Try this" header
+            card.add(JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.LINE_AXIS)
+                isOpaque = false; alignmentX = Component.LEFT_ALIGNMENT
+                add(JLabel("\uD83D\uDCA1").apply { font = font.deriveFont(13f) })
+                add(Box.createHorizontalStrut(6))
+                add(JLabel(hint.title).apply {
+                    font = font.deriveFont(Font.PLAIN, 12f)
+                        .deriveFont(mapOf(java.awt.font.TextAttribute.WEIGHT to java.awt.font.TextAttribute.WEIGHT_MEDIUM))
+                    foreground = DColors.accent
+                })
+            })
+            card.add(Box.createVerticalStrut(4))
+
+            for (step in hint.steps) {
+                card.add(JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.LINE_AXIS)
+                    isOpaque = false
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    border = BorderFactory.createEmptyBorder(2, 18, 2, 0)
+                    val bullet = JLabel("•").apply {
+                        foreground = DColors.fg3
+                        font = font.deriveFont(Font.BOLD, 12f)
+                        alignmentY = Component.TOP_ALIGNMENT
+                    }
+                    add(bullet); add(Box.createHorizontalStrut(6))
+                    add(wrappedLabel(step, mono = false, fg = DColors.fg1, sizePx = 11.5f).apply {
+                        alignmentY = Component.TOP_ALIGNMENT
+                    })
+                })
+            }
+        }
+
+        win.contentPane = card
+        win.pack()
+        // pack() under-estimates width because Swing's HTML renderer uses the CSS
+        // width hint only for line-wrapping, not for the JLabel's own preferredSize.
+        // Force the window to exactly MAX_W wide so nothing is clipped.
+        win.setSize(MAX_W + 28, win.height)   // +28 = 14px left + 14px right padding
+        return win
+    }
+
+    /** A JLabel that wraps text inside a max width using HTML. */
+    private fun wrappedLabel(text: String, mono: Boolean, fg: Color, sizePx: Float): JLabel {
+        val escaped = text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br/>")
+        val css = if (mono)
+            "font-family:'JetBrains Mono','Menlo',monospace;font-size:${sizePx.toInt()}px;width:${MAX_W - 30}px;line-height:1.45;"
+        else
+            "font-size:${sizePx.toInt()}px;width:${MAX_W - 30}px;line-height:1.45;"
+        return JLabel("<html><div style='$css'>$escaped</div></html>").apply {
+            foreground = fg
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+    }
+}
+
