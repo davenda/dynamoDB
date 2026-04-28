@@ -15,13 +15,15 @@ class EditConnectionDialog(
     private val existing: DynamoConnectionRegistry.ConnectionConfig,
 ) : DialogWrapper(project) {
 
-    private val nameField     = JTextField(existing.name, 25)
-    private val regionField   = JTextField(existing.region, 25)
-    private val profileField  = JTextField(existing.profileName ?: "", 25)
-    private val endpointField = JTextField(existing.endpointOverride ?: "", 25)
-    private val credTypeBox   = JComboBox(DynamoConnectionRegistry.CredentialType.entries.toTypedArray()).apply {
+    private val nameField      = JTextField(existing.name, 25)
+    private val regionField    = JTextField(existing.region, 25)
+    private val profileField   = JTextField(existing.profileName ?: "", 25)
+    private val endpointField  = JTextField(existing.endpointOverride ?: "", 25)
+    private val credTypeBox    = JComboBox(DynamoConnectionRegistry.CredentialType.entries.toTypedArray()).apply {
         selectedItem = existing.credentialType
     }
+    private val proxyHostField = JTextField(existing.proxyHost ?: "", 25)
+    private val proxyPortField = JTextField(existing.proxyPort?.toString() ?: "", 6)
 
     init {
         title = "Edit Connection"
@@ -44,6 +46,8 @@ class EditConnectionDialog(
         row("Credential type:", credTypeBox, 2)
         row("AWS profile (optional):", profileField, 3)
         row("Endpoint override (optional):", endpointField, 4)
+        row("Proxy host (optional):", proxyHostField, 5)
+        row("Proxy port (optional):", proxyPortField, 6)
         return panel
     }
 
@@ -62,6 +66,8 @@ class EditConnectionDialog(
             profileName      = profileField.text.trim().ifEmpty { null },
             endpointOverride = endpointField.text.trim().ifEmpty { null },
             credentialType   = credTypeBox.selectedItem as DynamoConnectionRegistry.CredentialType,
+            proxyHost        = proxyHostField.text.trim().ifEmpty { null },
+            proxyPort        = proxyPortField.text.trim().toIntOrNull(),
         ))
         super.doOKAction()
     }

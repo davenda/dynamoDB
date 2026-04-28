@@ -14,11 +14,13 @@ class ConnectDialog(
     private val registry: DynamoConnectionRegistry,
 ) : DialogWrapper(project) {
 
-    private val nameField     = JTextField("My DynamoDB", 25)
-    private val regionField   = JTextField("us-east-1", 25)
-    private val profileField  = JTextField("", 25)
-    private val endpointField = JTextField("", 25)  // blank = AWS, or http://localhost:8000 for local
-    private val credTypeBox   = JComboBox(DynamoConnectionRegistry.CredentialType.entries.toTypedArray())
+    private val nameField      = JTextField("My DynamoDB", 25)
+    private val regionField    = JTextField("us-east-1", 25)
+    private val profileField   = JTextField("", 25)
+    private val endpointField  = JTextField("", 25)  // blank = AWS, or http://localhost:8000 for local
+    private val credTypeBox    = JComboBox(DynamoConnectionRegistry.CredentialType.entries.toTypedArray())
+    private val proxyHostField = JTextField("", 25)
+    private val proxyPortField = JTextField("", 6)
 
     init {
         title = "Connect to DynamoDB"
@@ -44,9 +46,11 @@ class ConnectDialog(
         row("Credential type:", credTypeBox, 2)
         row("AWS profile (optional):", profileField, 3)
         row("Endpoint override (optional):", endpointField, 4)
+        row("Proxy host (optional):", proxyHostField, 5)
+        row("Proxy port (optional):", proxyPortField, 6)
 
         val hint = JLabel("<html><i>Leave endpoint blank for AWS. Use http://localhost:8000 for DynamoDB Local.</i></html>")
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2
+        gbc.gridx = 0; gbc.gridy = 7; gbc.gridwidth = 2
         panel.add(hint, gbc)
 
         return panel
@@ -61,11 +65,13 @@ class ConnectDialog(
     override fun doOKAction() {
         registry.addConnection(
             DynamoConnectionRegistry.ConnectionConfig(
-                name            = nameField.text.trim(),
-                region          = regionField.text.trim(),
-                profileName     = profileField.text.trim().ifEmpty { null },
+                name             = nameField.text.trim(),
+                region           = regionField.text.trim(),
+                profileName      = profileField.text.trim().ifEmpty { null },
                 endpointOverride = endpointField.text.trim().ifEmpty { null },
-                credentialType  = credTypeBox.selectedItem as DynamoConnectionRegistry.CredentialType,
+                credentialType   = credTypeBox.selectedItem as DynamoConnectionRegistry.CredentialType,
+                proxyHost        = proxyHostField.text.trim().ifEmpty { null },
+                proxyPort        = proxyPortField.text.trim().toIntOrNull(),
             )
         )
         super.doOKAction()

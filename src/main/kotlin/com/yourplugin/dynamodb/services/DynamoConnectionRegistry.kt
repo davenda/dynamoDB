@@ -4,6 +4,8 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import software.amazon.awssdk.auth.credentials.*
+import software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient
+import software.amazon.awssdk.http.nio.netty.ProxyConfiguration
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import java.net.URI
@@ -26,6 +28,8 @@ class DynamoConnectionRegistry : PersistentStateComponent<DynamoConnectionRegist
         var endpointOverride: String? = null,    // for DynamoDB Local
         var roleArn: String? = null,             // for cross-account access
         var credentialType: CredentialType = CredentialType.DEFAULT_CHAIN,
+        var proxyHost: String? = null,           // HTTP/HTTPS proxy host
+        var proxyPort: Int? = null,              // proxy port (defaults to 8080 if host is set)
     )
 
     enum class CredentialType { DEFAULT_CHAIN, NAMED_PROFILE, STATIC_KEYS, ROLE_ASSUMPTION }
@@ -71,9 +75,21 @@ class DynamoConnectionRegistry : PersistentStateComponent<DynamoConnectionRegist
             CredentialType.ROLE_ASSUMPTION -> DefaultCredentialsProvider.create() // add STS later
         }
 
+        val httpClientBuilder = NettyNioAsyncHttpClient.builder()
+        if (config.proxyHost != null) {
+            httpClientBuilder.proxyConfiguration(
+                ProxyConfiguration.builder()
+                    .host(config.proxyHost!!)
+                    .port(config.proxyPort ?: 8080)
+                    .scheme("https")
+                    .build()
+            )
+        }
+
         return DynamoDbAsyncClient.builder()
             .region(Region.of(config.region))
             .credentialsProvider(credentials)
+            .httpClientBuilder(httpClientBuilder)
             .apply {
                 config.endpointOverride?.let {
                     endpointOverride(URI.create(it))
